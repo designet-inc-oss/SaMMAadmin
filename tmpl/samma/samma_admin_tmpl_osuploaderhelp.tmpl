@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <title><<TITLE>></title>
+  <<JAVASCRIPT>>
+  <meta charset="EUC-JP">
+  <link rel="stylesheet" href="../../../../css/bootstrap/css/bootstrap-paper.css">
+  <script src="../../../../js/jquery-3.1.1.min.js"></script>
+  <script src="../../../../js/jquery-ui.min.js"></script>
+  <script src="../../../../css/bootstrap/js/bootstrap.min.js"></script>
+  <link rel="stylesheet" href="../../../../css/style.css">
+  <link rel="stylesheet" href="../../../sammaadmin.css">
+</head>
+
+<body>
+<div class="container-fluid">
+  <!-- 左グリッド  -->
+  <div class="row">
+
+    <!-- 右グリッド  -->
+    <div class="col-sm-8">
+      <!-- エラーメッセージ -->
+
+      <!-- メインコンテンツ -->
+      <div class="panel panel-primary">
+        <div class="panel-heading">
+          <h3 class="panel-title">使用できるタグ一覧</h3>
+        </div>
+        <div class="ErrorMessage"></div>
+        <div class="row panel-body">
+          <!-- フォーム -->
+          <div class="col-sm-10 col-sm-offset-1">
+            <div class="form-group well">
+              <div class="form-group">
+                <table class="table-bordered">
+                  <tbody>
+                    <tr>
+                      <th class="search_group">タグ名</td>
+                      <th class="search_conv">説明</td>
+                    </tr>
+                    <tr>
+                      <td class="value">&lt;@@URL@@&gt;</td>
+                      <td class="value">公開フォルダへのアクセスURL</td>
+                    </tr>
+                    <tr>
+                      <td class="value">&lt;@@FILENAME@@&gt;</td>
+                      <td class="value">公開フォルダ内に配置されているファイルのファイル名
+複数存在する場合、1行に1ファイルずつ出力する
+マルチバイト文字を含むファイル名は、UTF-8に変換する</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <input type="button" name="close" value="閉じる" class="btn btn-primary" onClick="window.close();">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

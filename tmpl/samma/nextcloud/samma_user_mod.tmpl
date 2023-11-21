@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <title><<TITLE>></title>
+  <<JAVASCRIPT>>
+  <meta charset="EUC-JP">
+  <link rel="stylesheet" href="../../../css/bootstrap/css/bootstrap-paper.css">
+  <script src="../../../js/jquery-3.1.1.min.js"></script>
+  <script src="../../../js/jquery-ui.min.js"></script>
+  <script src="../../../css/bootstrap/js/bootstrap.min.js"></script>
+  <link rel="stylesheet" href="../../../css/style.css">
+  <link rel="stylesheet" href="../../sammaadmin.css">
+<script>
+$(document).ready(function () {
+    $('#genpw').click(function() {
+      var letters = 'abcdefghijklmnopqrstuvwxyz';
+      var numbers = '0123456789';
+      var sym = '@#$+*=';
+    
+      var string  = letters + letters.toUpperCase() + numbers + sym;
+      var len = 8;
+      var password='';
+      for (var i = 0; i < len; i++) {
+         password += string.charAt(Math.floor(Math.random() * string.length));
+      }
+
+      var days = new Date()
+      var year = days.getFullYear();
+      var month = days.getMonth()+1;
+      month = ('00' + month).slice(-2);
+    
+      $('#indpass').val(password + '-' + year + month);
+    });
+});
+</script>
+
+
+</head>
+
+<body>
+<header class="">
+  <nav class="navbar navbar-default navmargin">
+    <div class="navbar-header">
+      <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#gmenu">
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      <div class="navbar-brand"></div>
+    </div>
+
+
+    <div id="gmenu" class="collapse navbar-collapse">
+      <ul class="nav navbar-nav navbar-right ">
+<<START_TAB>>
+<li class="<<ACTIVE>>"><a href="#" onClick="dgpSubmit('<<URL>>')"><span class="glyphicon glyphicon-user" aria-hidden="true"></span><<NAME>></a></li>
+<<END_TAB>>
+<li class=""><a href="#" onClick="dgpSubmit('../../logout.php')"><span class="glyphicon glyphicon-user" aria-hidden="true"></span>ログアウト</a></li>
+      </ul>
+    </div>
+  </nav>
+  <div class="container-fluid fix-padding">
+  </div>
+</header>
+
+<div class="container-fluid">
+  <!-- 左グリッド  -->
+  <div class="row">
+    <!-- 左ナビゲーションバー -->
+    <nav class="aside col-sm-2 col-sm-offset-1">
+      <div class="panel panel-default">
+        <ul class="list-group">
+<<START_MENU>>
+<a class="list-group-item  <<ACTIVE>>" href="#"	onClick="dgpSubmit('<<URL>>')"><<NAME>></a>
+<<END_MENU>>
+        </ul>
+      </div>
+    </nav>
+
+    <!-- 右グリッド  -->
+    <div class="col-sm-8">
+      <!-- エラーメッセージ -->
+
+      <!-- メインコンテンツ -->
+      <div class="panel panel-primary">
+        <div class="panel-heading">
+          <h3 class="panel-title">設定内容について</h3>
+        </div>
+        <div class="panel-body">
+          <ul>
+          <li>宛先メールアドレスと固定パスワードを設定してください。</li>
+          <li>設定したメールアドレスにメールで添付ファイルを送信すると、自動的にNextcloudにアップロードされ、共有URLが発行されます。</li>
+          <li>共有URLには、上記で設定した固定パスワードでログインできるようになります。 </li>
+          <li>未設定の宛先に添付ファイルを送信した場合、ランダムパスワードが設定されます。</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="panel panel-primary">
+        <div class="panel-heading">
+          <h3 class="panel-title">添付ファイル送信時の固定パスワード設定</h3>
+        </div>
+        <div class="ErrorMessage"></div>
+        <div class="row panel-body">
+          <!-- フォーム -->
+          <div class="col-sm-10 col-sm-offset-1">
+            <form class="form-horizontal" method="POST" action="samma_mod.php" name="rcpt_mod">
+              <div class="form-group well">
+
+<<MESSAGE>>
+
+                <div class="form-group">
+                  <label for="user" class="col-sm-4 control-label">宛先メールアドレス/ドメイン</label>
+                  <div class="col-sm-8">
+                    <<DISP_DOM>>
+                    <input type="hidden" name="domname" value="<<DOMAIN>>">
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label for="user" class="col-sm-4 control-label">共有URLログインパスワード</label>
+                  <div class="col-sm-8">
+                    <div class="form-group">
+                      <div class="col-sm-7">
+                        <input type="radio" name="password" value="0" checked hidden>
+                        <input type="text" class="form-control" id="indpass" size="16" name="indivipass" maxlength="20" value="<<INDIVIPASS>>">
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label for="user" class="col-sm-4 control-label">パスワード生成</label>
+                  <div class="col-sm-8">
+                     <button type="button" id="genpw" class="btn btn-success">自動生成</button>
+                  </div>
+                </div>
+
+                <input type="hidden" name="rule" value="1">
+
+                <!-- ボタン -->
+                <div class="form-group">
+                  <div class="col-sm-12">
+                    <<SK>>
+                    <input type="submit" name="mod" value="更新" class="btn btn-primary">
+                    <input type="submit" name="del" value="削除" class="btn btn-primary" onClick="return msgConfirm('内部ドメイン設定を削除します。\nよろしいですか？')">
+                    <input type="submit" name="cancel" value="キャンセル" class="btn btn-primary">
+
+                  </div>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<footer class="footer nav navbar-default">
+    <nav class="pull-right">
+      <div class="navbar-brand"></div>
+    </nav>
+</footer>
+
+<form method="post" name="common">
+  <<SK>>
+</form>
+
+</body>
+
+</html>

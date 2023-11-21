@@ -1,0 +1,38 @@
+header, body, div {
+}
+
+.navbar-brand {
+  background: url("../admin/images/logo_sammaadmin.png") no-repeat left center;
+  background-size: contain;
+  height: 40px;
+  width: 250px;
+  margin-top:10px;
+}
+
+.red {
+    color: #ff0000;
+}
+
+select.small_select {
+    width: 80px;
+}
+
+select.large_select {
+    width: 150px;
+}
+
+select.sendercheck_select {
+    width: 350px;
+}
+
+select.harmlessproc_select {
+    width: 200px;
+}
+
+div.msg {
+    word-break : break-all;
+}
+
+td {
+    word-break : break-all;
+}

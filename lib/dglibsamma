@@ -1,0 +1,2519 @@
+<?php
+/*
+ * postLDAPadmin
+ *
+ * Copyright (C) 2006,2007 DesigNET, INC.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ */
+
+/***********************************************************
+ * SaMMA用ライブラリ
+ *
+ * $RCSfile: dglibsamma,v $
+ * $Revision: 1.50 $
+ * $Date: 2013/08/30 06:07:22 $
+ **********************************************************/
+
+/* 文字エンコード */
+define("AUTO", "ASCII,JIS,UTF-8,EUC-JP,SJIS");
+define("TMPL_ENCODING", "EUC-JP");
+define("STRCODE", "UTF-8");
+define("DEF_CODE", "SJIS");
+
+/* BerkeleyDBのハンドラー*/
+define("DB_HANDLER", "db4");
+
+/* 返り値 */
+define("SUCCESS", 0);
+define("SUCCESS_EMPTY", 1);
+define("FAIL", -1);
+define("FAIL_DEL", -2);
+define("FAIL_EXIST", -3);
+define("FAIL_NO_EXIST", -4);
+define("NO_CHANGE", -5);
+define("EXTENSION_ERR", -6);
+define("NO_USE", -7);
+define("NOW_USE", -8);
+define("TIMEOUT_ERR", -9);
+define("SYSTEM_ERR", -10);
+
+/* 制限値 */
+define("DIR_MIN", 1);
+define("DIR_MAX", 256);
+define("COM_MIN", 1);
+define("COM_MAX", 256);
+define("STR_MIN", 1);
+define("STR_MAX", 256);
+define("FILE_MIN", 1);
+define("FILE_MAX", 256);
+define("PASS_MIN", 1);
+define("PASS_MAX", 20);
+define("EXTENSION_MIN", 0);
+define("EXTENSION_MAX", 20);
+define("TOTAL_ZIP_MAX", 256);
+define("PORT_MIN", 1);
+define("PORT_MAX", 65535);
+define("FILTER_MIN", 1);
+define("FILTER_MAX", 128);
+
+/* 通信時メッセージ */
+define("WELCOME", "Welcome to SaMMA");
+define("OK_CODE", "+OK");
+define("NG_CODE", "-NG");
+define("EXIT_CODE", "exit\r\n");
+
+/* LDAP用 */
+define("ENC", "mailEncryptionAddr=%s");
+define("ENC_DN", ENC . ",%s");
+define("OBJECT_DN", "objectClass=%s");
+define("SAMMA_OBJECT", "samma");
+
+/* DB用コマンド */
+define("MAKEMAP", "/usr/sbin/makemap");
+define("ECHO_COM", "/bin/echo");
+define("MAKEMAP_COM", ECHO_COM . " \"\" | " . MAKEMAP . " -e %s %s");
+define("CONFIRM_DB", MAKEMAP . " -u %s %s >/dev/null 2>&1");
+
+define("BUF_SIZE", 1024);
+
+/* リロード用 */
+define("ALL", "0");
+define("TEMPLATE", "1");
+define("ADDMSG", "2");
+define("TIMEOUT", "60");
+define("PS_COM", "ps -ef | grep samma | grep -v grep >/dev/null 2>&1"); 
+
+$reload = array("reload all\r\n", "reload tmpl\r\n", "reload addmsg\r\n");
+$db_types = array("hash", "btree");
+
+/* 受信者設定表示用 */
+define("RANDOM", 1);
+define("INDIVI", 0);
+define("EFFECT", 1);
+define("INEFFECT", 0);
+define("DISP_EFFECT", "○");
+define("DISP_INEFFECT", "×");
+define("DISP_RANDOM", "ランダム");
+define("DISP_NOPASS", "−");
+define("DISP_INDIVI", "個別");
+
+/* メールアドレス比較文字列 */
+define("CHECK_STR1", ".-");
+define("CHECK_STR2", "#$%&'*+-/=?^_{}~.");
+define("CHECK_STR3", "!\"#$%&'()=-~^|@`[{;+:*]},<.>\/?_");
+define("CHECK_STR4", "!\"#$%&'()=-~^|@`[{;+:*]},<.>\/?_ ");
+define("CHECK_STR5", ".");
+define("CHECK_STR6", "!\"#$%&'()=-~^|@`[{;+:*]},<.>\/?_ ");
+
+/* メールアドレス/ドメイン比較関数名 */
+define("DOMAIN_SORT", "domain_sort");
+
+/* ログファシリティ */
+$logfacility = array("auth", "authpriv", "cron", "daemon", "kern", "lpr", 
+                     "mail", "news", "syslog", "user", "uucp", "local0", 
+                     "local1", "local2", "local3", "local4", "local5", 
+                     "local6", "local7");
+
+/* 文字コード */
+$str_code = array("UTF-8", "EUC-JP", "ISO-2022-JP", "SJIS");
+
+/* ファイル名 */
+define("DEF_TMPL", "samma.tmpl.default");
+define("DEF_RCPT_TMPL", "samma-rcpt.tmpl.default");
+
+/***************************************************************************
+ * db_search
+ *
+ * データベースの検索を行う
+ *
+ * [引数]
+ *  $dbpath    データベースのパス
+ *  $data      データの検索結果(参照渡し)
+ * [返り値]
+ *  SUCCESS       正常 
+ *  SUCCESS_EMPTY 空のデータ配列
+ *  FAIL          異常
+ **************************************************************************/
+function db_search($dbpath, &$data)
+{
+    global $err_msg;
+
+    /* ファイルの読み込み権チェック */
+    $ret = is_readable_file($dbpath);
+    if ($ret === FALSE) {
+        return FAIL;
+    }
+
+    /* データベースのオープン */
+    $dbh = dba_popen($dbpath, "r", DB_HANDLER);
+    if ($dbh === FALSE) {
+        $err_msg = "ファイルのオープンに失敗しました。(" . $dbpath . ")";
+        return FAIL;
+    }
+
+    /* 最初のキーを得る */
+    $key = dba_firstkey($dbh);
+    if ($key === FALSE) {
+        $data = array();
+        dba_close($dbh);
+        return SUCCESS_EMPTY;
+    }
+
+    /* キーを順に取り、値を配列に代入 */
+    while ($key !== FALSE) {
+        $data[$key] = dba_fetch($key, $dbh);
+        if ($ret === FALSE) {
+            $err_msg = "検索に失敗しました。(" . $dbpath . ")";
+            dba_close($dbh);
+            return FAIL;
+        }
+        $key = dba_nextkey($dbh);
+    }
+
+    dba_close($dbh);
+    return SUCCESS;
+}
+
+/***************************************************************************
+ * db_add
+ *
+ * データベースの登録を行う
+ *
+ * [引数]
+ *  $dbpath     データベースのパス
+ *  $dbtype     データベースの形式
+ *  $key        登録キー
+ *  $check_key  重複チェックキー
+ *  $value      登録値
+ * [返り値]
+ *  SUCCESS     正常
+ *  FAIL_EXIST  既にデータが登録されていた場合 
+ *  FAIL        異常
+ **************************************************************************/
+function db_add($dbpath, $dbtype, $key, $check_key, $value)
+{
+    global $err_msg;
+
+    /* ファイルの書き込み権チェック */
+    /* 存在チェック */
+    if (file_exists($dbpath) === FALSE) {
+        /* 空DB作成 */
+        $type = 0;
+        if ($dbtype == "btree") {
+            $type = 1;
+        }
+        if (make_db($dbpath, $type) === FALSE) {
+            $err_msg = "DB用の" . $err_msg;
+            return FAIL;
+        }
+    } else {
+        /*  ディレクトリチェック */
+        if (is_dir($dbpath) === TRUE) {
+            $err_msg = "指定されたファイルはディレクトリです。($dbpath)";
+            return FAIL;
+        }
+        /*  ファイルの書込み権チェック */
+        if (is_writable($dbpath) === FALSE) {
+            $err_msg = "ファイルに書込み権がありません。($dbpath)";
+            return FAIL;
+        }
+    }
+
+    /* データベースのオープン */
+    $dbh = dba_popen($dbpath, "c", DB_HANDLER);
+    if ($dbh === FALSE) {
+        $err_msg = "ファイルのオープンに失敗しました。(" . $dbpath . ")";
+        return FAIL;
+    }
+
+    /* 表示用キー作成 */
+    $str = explode("!", $key, 2);
+    if ($str[0] != $key) {
+        $disp = $str[1];
+    } else {
+        $disp = $key;
+    }
+
+    /* データが既に存在しないかチェック */
+    $ret = dba_fetch($key, $dbh);
+    if ($ret !== FALSE) {
+        $err_msg = "既に登録されています。(" . $disp . ")";
+        dba_close($dbh);
+        return FAIL_EXIST;
+    }
+
+    /* 対象は既に"!"がないか、非対象は"！"なしがいないか */
+    $ret = dba_fetch($check_key, $dbh);
+    if ($ret !== FALSE) {
+        $err_msg = "既に登録されています。(" . $disp . ")";
+        dba_close($dbh);
+        return FAIL_EXIST;
+    }
+
+    /* データの挿入 */
+    $ret = dba_insert($key, $value, $dbh);
+    if ($ret === FALSE) {
+        $err_msg = "DBファイルの更新に失敗しました。(" . $dbpath . ")";
+        dba_close($dbh);
+        return FAIL;
+    }
+
+    dba_close($dbh);
+    return SUCCESS;
+}
+
+/***************************************************************************
+ * db_mod
+ *
+ * データベースの変更を行う(valueのみ)
+ *
+ * [引数]
+ *  $dbpath        データベースのパス
+ *  $key           変更キー
+ *  $value         変更値
+ * [返り値]
+ *  SUCCESS        正常
+ *  FAIL_NO_EXIST  データが登録されていない場合
+ *  FAIL           異常
+ **************************************************************************/
+function db_mod($dbpath, $key, $value)
+{
+    global $err_msg;
+
+    /* 存在チェック */
+    if (file_exists($dbpath) === FALSE) {
+        $err_msg = "ファイルが存在しません。(" . $dbpath . ")";
+        return FAIL;
+    }
+
+    /*  ディレクトリチェック */
+    if (is_dir($dbpath) === TRUE) {
+        $err_msg = "指定されたファイルはディレクトリです。(" . $dbpath . ")";
+        return FAIL;
+    }
+
+    /*  ファイルの書き込み権チェック */
+    if (is_writable($dbpath) === FALSE) {
+        $err_msg = "ファイルに書き込み権がありません。(" . $dbpath . ")";
+        return FAIL;
+    }
+
+    /* データベースのオープン */
+    $dbh = dba_popen($dbpath, "c", DB_HANDLER);
+    if ($dbh === FALSE) {
+        $err_msg = "ファイルのオープンに失敗しました。(" . $dbpath . ")";
+        return FAIL;
+    }
+
+    /* 表示用 */
+    $str = explode("!", $key, 2);
+    if ($str[0] != $key) {
+        $disp = $str[1];
+    } else {
+        $disp = $key;
+    }
+
+    /* データが存在するかチェック */
+    $ret = dba_fetch($key, $dbh);
+    if ($ret === FALSE) {
+        $err_msg = "登録されていません。(" . $disp . ")";
+        dba_close($dbh);
+        return FAIL_NO_EXIST;
+    }
+
+    /* データの変更 */
+    $ret = dba_replace($key, $value, $dbh);
+    if ($ret === FALSE) {
+        $err_msg = "DBファイルの更新に失敗しました。(" . $dbpath . ")";
+        dba_close($dbh);
+        return FAIL;
+    }
+
+    dba_close($dbh);
+    return SUCCESS;
+}
+
+/***************************************************************************
+ * db_del
+ *
+ * データベースの削除を行う
+ *
+ * [引数]
+ *  $dbpath    データベースのパス
+ *  $key_data  削除キーの配列
+ * [返り値]
+ *  SUCCESS    正常
+ *  FAIL       異常
+ *  FAIL_DEL   削除できないものがあった場合
+ **************************************************************************/
+function db_del($dbpath, $key_data)
+{
+    global $suc_msg;
+    global $err_msg;
+    $suc_value = "";
+    $err_value = "";
+
+    /* 存在チェック */
+    if (file_exists($dbpath) === FALSE) {
+        $err_msg = "ファイルが存在しません。(" . $dbpath . ")";
+        return FAIL;
+    }
+
+    /*  ディレクトリチェック */
+    if (is_dir($dbpath) === TRUE) {
+        $err_msg = "指定されたファイルはディレクトリです。(" . $dbpath . ")";
+        return FAIL;
+    }
+
+    /*  ファイルの書き込み権チェック */
+    if (is_writable($dbpath) === FALSE) {
+        $err_msg = "ファイルに書き込み権がありません。(" . $dbpath . ")";
+        return FAIL;
+    }
+
+    /* データベースのオープン */
+    $dbh = dba_popen($dbpath, "c", DB_HANDLER);
+    if ($dbh === FALSE) {
+        $err_msg = "ファイルのオープンに失敗しました。(" . $dbpath . ")";
+        return FAIL;
+    }
+
+    /* データの削除 */
+    foreach ($key_data as $value) {
+        $ret = dba_delete($value, $dbh);
+
+        $str = explode("!", $value, 2);
+        if ($str[0] != $value) {
+            $value = $str[1];
+        }
+        /* エラーメッセージ作成 */
+        if ($ret === FALSE) {
+            if ($err_value == "") {
+                $err_value .=  $value;
+            } else {
+                $err_value .= ", " . $value;
+            }
+
+        /* 成功メッセージ作成 */
+        } else {
+            if ($suc_value == "") {
+                $suc_value .=  $value;
+            } else {
+                $suc_value .= ", " . $value;
+            }
+        }
+    }
+
+    if ($err_value != "") {
+        if ($suc_value != "") {
+            $suc_msg = "削除に成功しました。(" . $suc_value . ")";
+        }
+        $err_msg = "削除に失敗しました。(" . $err_value . ")";
+        dba_close($dbh);
+        return FAIL_DEL;
+    }
+
+    $suc_msg = "削除に成功しました。(" . $suc_value . ")";
+    dba_close($dbh);
+    return SUCCESS;
+}
+
+/***************************************************************************
+ * read_file
+ *
+ * ファイルの読み込み
+ *
+ * [引数]
+ *  $filepath  ファイルのパス
+ *  $filedata  ファイルの中身(参照渡し)
+ * [返り値]
+ *  TRUE       正常
+ *  FALSE      異常
+ **************************************************************************/
+function read_file($filepath, &$filedata)
+{
+    global $err_msg;
+
+    /* 読み込み権チェック */
+    $ret = is_readable_file($filepath);
+    if ($ret === FALSE) {
+        return FALSE;
+    }
+
+    /* ファイルの中身を読む */
+    $data = file_get_contents($filepath);
+    if ($data === FALSE) {
+        $err_msg = "ファイルの読み込みに失敗しました。(" . $filepath .")";
+        return FALSE;
+    }
+
+    /* 文字コード変換したものを代入 */
+    $filedata = mb_convert_encoding($data, TMPL_ENCODING, AUTO);
+    return TRUE;
+}
+
+/***************************************************************************
+ * write_file
+ *
+ * ファイルの書き込み
+ *
+ * [引数]
+ *  $filepath  ファイルのパス
+ *  $encode    エンコード文字種類
+ *  $data      登録データ 
+ * [返り値]
+ *  TRUE       正常 
+ *  FALSE      異常
+ **************************************************************************/
+function write_file($filepath, $encode, $data)
+{
+    global $err_msg;
+
+    /* 存在チェック */
+    if (file_exists($filepath) === FALSE) {
+        $err_msg = "ファイルが存在しません。(" . $filepath . ")";
+        return FALSE;
+    }
+
+    /*  ディレクトリチェック */
+    if (is_dir($filepath) === TRUE) {
+        $err_msg = "指定されたファイルはディレクトリです。(" . $filepath . ")";
+        return FALSE;
+    }
+
+    /*  ファイルの書込み権チェック */
+    if (is_writable($filepath) === FALSE) {
+        $err_msg = "ファイルに書込み権がありません。(" . $filepath . ")";
+        return FALSE;
+    }
+
+    /* ディレクトリの書き込み権チェック */
+    $ret = is_writable(dirname($filepath));
+    if ($ret === FALSE) {
+        $err_msg = "ディレクトリに書き込み権がありません。(" . $filepath . ")";
+        return FALSE;
+    }
+
+    /* 一時ファイルの作成 */
+    $tmppath = tempnam(dirname($filepath), "samma_");
+    if ($tmppath === FALSE) {
+        $err_msg = 一時ファイルの作成に失敗しました。;
+        return FALSE;
+    }
+
+    /* ファイルオープン */
+    $fp = fopen($tmppath, 'w');
+    if ($fp === FALSE) {
+        $err_msg = "ファイルのオープンに失敗しました。(" . $tmppath .")";
+        unlink($tmppath);
+        return FALSE;
+    }
+
+    $data = preg_replace("/\r\n/", "\n", $data);
+
+    /* 書き込みデータの文字コード変更 */
+    if (!empty($encode)) {
+        $conv_data = mb_convert_encoding($data, $encode, AUTO);
+    } else {
+        $conv_data = $data;
+    }
+
+    /* データのバイト数を調べる */
+    $datalen = strlen($conv_data);
+
+    /* データの書き込み */
+    $ret = fwrite($fp, $conv_data, $datalen);
+    if ($ret === FALSE) {
+        $err_msg = "ファイルの書き込みに失敗しました。(" . $tmppath .")";
+        fclose($fp);
+        unlink($tmppath);
+        return FALSE;
+    }
+    fclose($fp);
+
+    /* ファイルの移動 */
+    $ret = rename($tmppath, $filepath);
+    if ($ret === FALSE) {
+        $err_msg = "ファイルの移動に失敗しました。(" . $tmppath .")";
+        unlink($tmppath);
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+/*********************************************************
+ * read_samma_conf()
+ *
+ * SaMMA設定ファイルを読み込み、
+ * 設定情報を連想配列 $samma_conf に格納
+ *
+ * [引数]
+ *	$samma_file	設定ファイルパス
+ * [返り値]
+ *       TRUE          正常
+ *       FALSE         異常
+ **********************************************************/
+function read_samma_conf($samma_file)
+{
+    global $err_msg;
+    global $samma_keys;
+    global $samma_def;
+    global $samma_conf;
+    
+    /* ファイルの読み込み権チェック */
+    if (is_readable_file($samma_file) === FALSE) {
+        $err_msg = escape_html($err_msg);
+        return FALSE;
+    }
+
+    /* ファイルをオープン */
+    $fp = fopen($samma_file, "r");
+    if ($fp === FALSE) {
+        $err_msg = "ファイルがオープンできません。(" .
+                   escape_html($samma_file) . ")";
+        return FALSE;
+    }
+
+    /* 行の初期値 */
+    $line = 0;
+
+    /* ファイル読み込み */
+    while (feof($fp) === FALSE) {
+        /* 一行分をバッファに格納 */
+        $buf = fgets($fp);
+        if ($buf === FALSE) {
+            break;
+        }
+        /* 行末の空白と改行を削除 */
+        $buf = rtrim($buf);
+        $line++;
+
+        /* 行の頭が#のコメント行であれば無視 */
+        if (substr($buf, 0, 1) == "#") {
+            continue;
+        }
+
+        /* 空行であれば無視 */
+        if (strlen($buf) == 0) {
+            continue;
+        }
+
+        /* 行の始めの区切り文字で分割 */
+        $data = explode("=", $buf, 2);
+
+        /* 値がnull,パラメータの先頭が空白であれば、エラー */
+        if (($data[0] == "") || ($data[1] == "") ||
+                                 substr("$data[1]", 0, 1) == " ") {
+            fclose($fp);
+            set_error($samma_file, $line);
+            return FALSE;
+        }
+
+        /* 項目名を小文字化して格納 */
+        $key = strtolower($data[0]);
+
+        /* 重複チェック */
+        if (isset($samma_conf[$key]) === TRUE) {
+            $err_msg = "{$key}が重複しています。(" .
+            escape_html($samma_file) . ": {$line}行目)";
+            fclose($fp);
+            return FALSE;
+        }
+
+        /* 値を格納する */
+        $samma_conf[$key] = $data[1];
+    }
+
+    fclose($fp);
+    return TRUE;
+}
+
+/*********************************************************
+ * check_dir
+ *
+ * ディレクトリ名・存在チェック
+ *
+ * [引数]
+ *	$dir_name	ディレクトリ名
+ * [返り値]
+ *       TRUE          正常
+ *       FALSE         異常
+ **********************************************************/
+function check_dir($dir_name)
+{
+    global $err_msg;
+
+    /* 文字チェック */
+    if (check_str($dir_name, CHECK_STR3, DIR_MIN, DIR_MAX) === FALSE) {
+        $err_msg = "ディレクトリの" . $err_msg;
+        return FALSE;
+    }
+
+    /* 存在チェック */
+    if (is_dir($dir_name) === FALSE) {
+        $err_msg = "ディレクトリが存在しません。";
+        return FALSE;
+    }
+    
+    return TRUE;
+
+}
+
+/*********************************************************
+ * check_str
+ *
+ * 文字列チェック
+ *
+ * [引数]
+ *       $str          文字列
+ *       $sym          許可記号列
+ *       $min          最小文字数
+ *       $max          最大文字数
+ * [返り値]
+ *       TRUE          正常
+ *       FALSE         異常
+ **********************************************************/
+function check_str($str, $sym = "", $min = STR_MIN, $max = STR_MAX)
+{
+    global $err_msg;
+
+    /* 文字数チェック */
+    $letters = strlen($str);
+    if ($letters < $min || $letters > $max) {
+        $err_msg = "形式が不正です。";
+        return FALSE;
+    }
+
+    /* 半角英大小文字、数字、特定記号のみ許可 */
+    $num = "0123456789";
+    $sl = "abcdefghijklmnopqrstuvwxyz";
+    $ll = strtoupper($sl);
+    $allow_letter = $num . $sl . $ll . $sym;
+    if (strspn($str, $allow_letter) != $letters) {
+        $err_msg = "形式が不正です。";
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+/*********************************************************
+ * check_command
+ *
+ * コマンドファイル・実行権チェック
+ *
+ * [引数]
+ *	$com_name	コマンド
+ * [返り値]
+ *       TRUE          正常
+ *       FALSE         異常
+ **********************************************************/
+function check_command($com_name)
+{
+    global $err_msg;
+
+    /* 文字チェック */
+    if (check_str($com_name, CHECK_STR3, COM_MIN, COM_MAX) === FALSE) {
+        $err_msg = "コマンドパスの" . $err_msg;
+        return FALSE;
+    }
+
+    /* 実行権チェック */
+    if (is_executable_file($com_name) === FALSE) {
+        $err_msg = "コマンドパス" . $err_msg;
+        return FALSE;
+    }
+    
+    return TRUE;
+
+}
+
+
+/*********************************************************
+ * check_file
+ *
+ * ファイルチェック
+ *
+ * [引数]
+ *	$filename	コマンド
+ * [返り値]
+ *       SUCCESS		正常
+ *       FAIL			異常
+ *	 FAIL_NO_EXIST  	異常(ファイルなし)
+ **********************************************************/
+function check_file($filename)
+{
+    global $err_msg;
+ 
+    /* 文字チェック */
+    if (check_str($filename, CHECK_STR3, FILE_MIN, FILE_MAX) === FALSE) {
+        $err_msg = "ファイルの" . $err_msg;
+        return FAIL;
+    }
+
+    /* 存在のチェック */
+    if (file_exists($filename) === FALSE) {
+        $err_msg = "ファイルが存在しません。($filename)";
+        return FAIL_NO_EXIST;
+    }
+
+    /* ディレクトリかのチェック */
+    if (is_dir($filename) === TRUE) {
+        $err_msg = "に指定されたファイルはディレクトリです。($filename)";
+        return FAIL;
+    }
+
+    /*  ファイルの読み込み権チェック */
+    if (is_readable($filename) === FALSE) {
+        $err_msg = "ファイルに読み込み権がありません。($filename)";
+        return FAIL;
+    }
+    
+    return SUCCESS;
+
+}
+
+/*********************************************************
+ * check_samma_pass
+ *
+ * SaMMA関連パスワードチェック
+ *
+ * [引数]
+ *	$pass		パスワード
+ * [返り値]
+ *       TRUE          正常
+ *       FALSE         異常
+ **********************************************************/
+function check_samma_pass($pass)
+{
+    global $err_msg;
+
+    /* 文字チェック */
+    if (check_str($pass, CHECK_STR3, PASS_MIN, PASS_MAX) === FALSE) {
+        $err_msg = "パスワードの" . $err_msg;
+        return FALSE;
+    }
+    
+    return TRUE;
+
+}
+
+/*********************************************************
+ * check_content_type
+ *
+ * 安全化した添付ファイルのContent-Typeのチェック
+ *
+ * [引数]
+ *      $str           安全化した添付ファイルのContent-Type
+ * [返り値]
+ *       TRUE          正常
+ *       FALSE         異常
+ **********************************************************/
+function check_content_type($str)
+{
+    global $err_msg;
+
+    /* 文字チェック */
+    if (check_str($str, CHECK_STR3) === FALSE) {
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+/*********************************************************
+ * check_extension
+ *
+ * 拡張子入力値チェック
+ *
+ * [引数]
+ *      $extension     拡張子
+ * [返り値]
+ *       TRUE          正常
+ *       FALSE         異常
+ **********************************************************/
+function check_extension($extension)
+{
+    global $err_msg;
+    global $samma_conf;
+
+    /* 文字チェック */
+    if (check_str($extension, CHECK_STR3, EXTENSION_MIN, EXTENSION_MAX) === FALSE) {
+        return FALSE;
+    }
+
+    /* 設定ファイルの暗号化ZIPファイルフォーマットと合わせて確認 */
+    /* 入力文字数チェック */
+    /* .で区切った一番後ろの場所を取得 */
+    $len = strrpos($samma_conf["zipfilename"], CHECK_STR5);
+    if ($len !== FALSE) {
+        /* 先頭から指定場所までの文字列を取得 */
+        $zip_string = substr($samma_conf["zipfilename"], 0, $len);
+    } else {
+        $zip_string = $samma_conf["zipfilename"];
+    }
+
+    $letters = (strlen($zip_string) + strlen($extension));
+    if ($letters < EXTENSION_MIN || $letters > TOTAL_ZIP_MAX) {
+        return FALSE;
+    }
+
+
+    return TRUE;
+
+}
+
+/*********************************************************
+ * mod_samma_conf
+ *
+ * SaMMA環境設定ファイル更新
+ *
+ * [引数]
+ *	$new_samma_conf		設定ファイルデータ(連想配列)
+ * [返り値]
+ *       TRUE          正常
+ *       FALSE         異常
+ **********************************************************/
+function mod_samma_conf(&$new_samma_conf)
+{
+    global $err_msg;
+    global $web_conf;
+    global $samma_conf;
+
+    $new_conf = "";
+
+    /* 変更後データ準備(3項目は変更なし) */
+    if (isset($samma_conf["commandport"]) === TRUE) {
+        $new_conf .= "commandport=" . $samma_conf["commandport"] . "\n";
+    }
+
+    if (isset($samma_conf["listenip"]) === TRUE ) {
+        $new_conf .= "listenip=" . $samma_conf["listenip"] . "\n";
+    }
+
+    if (isset($samma_conf["listenport"]) === TRUE) {
+        $new_conf .= "listenport=" . $samma_conf["listenport"] . "\n";
+    }
+
+    /* データ整形 */
+    foreach ($new_samma_conf as $key => $value) {
+        /* 3項目は更新しない */
+        if ($key == "commandport" || $key == "listenip" || $key == "listenport") {
+            continue;
+        }
+
+        /* dbファイル名・形式は無視 */
+        if ($key == "sd_dbfile" || $key == "sd_dbtype" ||
+            $key == "rp_dbfile" || $key == "rp_dbtype" ||
+            $key == "ex_dbfile" || $key == "ex_dbtype") {
+            continue;
+        }
+
+        /* LDAPサーバ・ポートは無視 */
+        if ($key == "ldapserver" || $key == "ldapport") {
+            continue;
+        }
+
+        /* 空の場合は無視 */
+        if ($value == "") {
+            continue;
+        }
+
+        /* 変更データへ */
+        $new_conf .= $key . "=" . $value . "\n";
+    }
+
+    /* ファイル更新 */ 
+    $ret = write_file($web_conf["postldapadmin"]["sammaconf"], "", $new_conf);
+    if ($ret === FALSE) {
+        $err_msg = "設定" . $err_msg;
+        return FALSE;
+    }
+
+    /* リロード処理 */
+    $ret = reload_samma(ALL);
+    if ($ret === FALSE) {
+        return FALSE;
+    }
+    
+    return TRUE;
+
+}
+
+/*********************************************************
+ * mod_osuploader_conf
+ *
+ * SaMMA環境設定ファイル更新
+ *
+ * [引数]
+ *	$new_samma_conf		設定ファイルデータ(連想配列)
+ * [返り値]
+ *       TRUE          正常
+ *       FALSE         異常
+ **********************************************************/
+function mod_osuploader_conf(&$new_osuploader_conf)
+{
+    global $err_msg;
+    global $web_conf;
+    global $samma_conf;
+
+    $new_conf = "";
+
+    /* データ整形 */
+    foreach ($new_osuploader_conf as $key => $value) {
+
+        if ($value === "") {
+            continue;
+        }
+
+        /* 変更データへ */
+        $new_conf .= strtoupper($key) . "=" . $value . "\n";
+    }
+
+    /* ファイル更新 */ 
+    $ret = write_file(
+               $web_conf["postldapadmin"]["sammaosuploaderconf"],
+               "", $new_conf);
+    if ($ret === FALSE) {
+        $err_msg = "設定" . $err_msg;
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+/*********************************************************
+ * reload_samma
+ *
+ * SaMMAのリロードを行う
+ *
+ * [引数]
+ *	$flag		リロードフラグ
+ *			0: all 
+ *			1: template
+ * [返り値]
+ *       TRUE          正常
+ *       FALSE         異常
+ **********************************************************/
+function reload_samma($flag)
+{
+    global $samma_conf;
+    global $err_msg;
+    global $reload;
+    global $commandpass;
+
+    /* IP, ポート取得 */
+    $ip = $samma_conf["listenip"];
+    $port = $samma_conf["commandport"];
+
+    /* プロセス確認 */
+    $ret = system(PS_COM, $result);
+    if ($result != 0) {
+        $err_msg = "SaMMAが起動していません。";
+        return FALSE;
+    }
+    if ($ret === FALSE) {
+        $err_msg = "SaMMAが起動していません。";
+        return FALSE;
+    }
+
+    $buf = "";
+
+    /* 接続 */
+    /* 接続失敗時、warning出力あり */
+    $fp = fsockopen($ip, $port, $errno, $errstr, TIMEOUT);
+    if ($fp === FALSE) {
+        $err_msg = "SaMMAへの接続に失敗しました。(" . $errno . ": " . $errstr . ")";
+        return FALSE;
+    }
+    /* メッセージ取得 */
+    $buf = trim(fgets($fp, BUF_SIZE));
+    if ($buf != WELCOME) {
+        $err_msg = "SaMMAへの接続に失敗しました。";
+        return FALSE;
+    }
+
+    $login = "login " . $commandpass . "\r\n";
+
+    /* ログイン */
+    $ret = fputs ($fp, $login);
+    if ($ret === FALSE) {
+        $err_msg = "SaMMAへのログインに失敗しました。";
+        $ret = fputs ($fp, EXIT_CODE);
+        if ($ret === FALSE) {
+            $err_msg = "SaMMAへのログインに失敗しました。";
+            fclose($fp);
+            return FALSE;
+        }
+        fclose($fp);
+        return FALSE;
+    }
+
+    /* メッセージ取得 */
+    $buf = trim(fgets($fp, BUF_SIZE));
+    if ($buf != OK_CODE) {
+        $err_msg = "SaMMAへのログインに失敗しました。(" . $buf . ")";
+        $ret = fputs ($fp, EXIT_CODE);
+        if ($ret === FALSE) {
+            $err_msg = "SaMMAへのログインに失敗しました。(" . $buf . ")";
+            fclose($fp);
+            return FALSE;
+        }
+        fclose($fp);
+        return FALSE;
+    }
+
+    /* リロード発行 */
+    $ret = fputs ($fp, $reload[$flag]);
+    if ($ret === FALSE) {
+        $err_msg = "SaMMAのリロードに失敗しました。";
+        fclose($fp);
+        return FALSE;
+    }
+
+    /* メッセージ取得 */
+    $buf = trim(fgets($fp, BUF_SIZE));
+    if ($buf != OK_CODE) {
+        $err_msg = "SaMMAのリロードに失敗しました。(" . $buf . ")";
+        $ret = fputs ($fp, EXIT_CODE);
+        if ($ret === FALSE) {
+            $err_msg = "SaMMAのリロードに失敗しました。("  . $buf . ")";
+            fclose($fp);
+            return FALSE;
+        }
+        fclose($fp);
+        return FALSE;
+    }
+
+    /* ログアウト・クローズ */
+    fputs ($fp, EXIT_CODE);
+    fclose($fp);
+
+    return TRUE;
+
+}
+
+/*********************************************************
+ * make_db
+ *
+ * 空dbファイル作成
+ *
+ * [引数]
+ *	$db_file	dbファイル名(絶対パス)
+ *	$type		dbの形式
+ *			0: hash 1: btree
+ * [返り値]
+ *	TRUE		正常
+ *	FALSE		異常
+ **********************************************************/
+function make_db($db_file, $type)
+{
+    global $err_msg;
+    global $db_types;
+
+    $dir_name = dirname($db_file);
+
+    /*  ディレクトリチェック */
+    if (is_dir($dir_name) === FALSE) {
+        $err_msg = "ディレクトリが存在しません。($dir_name)";
+        return FALSE;
+    }
+
+    /* ディレクトリ書き込み権チェック */
+    if (is_writable($dir_name) === FALSE) {
+        $err_msg = "ディレクトリに書込み権がありません。($dir_name)";
+        return FALSE;
+    }
+
+    /* makemapコマンド実行 */
+    $command = sprintf(MAKEMAP_COM, $db_types[$type], escapeshellcmd($db_file));
+    $ret = system($command, $result);
+    if ($result != 0) {
+        $err_msg = "ファイル作成に失敗しました。";
+        return FALSE;
+    }
+    if ($ret === FALSE) {
+        $err_msg = "ファイル作成に失敗しました。";
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+/***************************************************************************
+ * page_location()
+ *
+ * チェックボックスのロケーションを行う(強制的にexitします)
+ *
+ * [引数]
+ *     $url   ロケーション先
+ *     $bread チェックボックスデータ配列
+ * [返り値]
+ *     なし
+ ***************************************************************************/
+function page_location($url, $bread = array())
+{
+    global $sesskey;
+    global $filter;
+    global $page;
+    global $form_name;
+    global $name_match;
+    global $dn;
+
+     output_http_header();
+     display_header();
+
+    print <<<EOD
+
+<body onload="dgpSubmit('$url')">
+処理中...
+<script type="text/javascript">
+<!--
+function dgpSubmit(url) {
+    document.common.action = url;
+    document.common.submit();
+}
+// -->
+</script>
+<form method="post" name="common">
+<input type="hidden" name="sk" value="$sesskey">
+<input type="hidden" name="page" value="$page">
+<input type="hidden" name="filter" value="$filter">
+<input type="hidden" name="form_name" value="$form_name">
+<input type="hidden" name="name_match" value="$name_match">
+<input type="hidden" name="dn" value="$dn">
+
+EOD;
+
+/* データが空ではなかったとき */
+if (empty($bread) === FALSE) {
+    foreach ($bread as $key => $val) {
+        print("<input type=\"hidden\" name=\"delete[]\" value=\"" .
+              escape_html($val) . "\">");
+    }
+}
+
+print <<<EOD
+</form>
+</body>
+
+EOD;
+
+    exit;
+}
+
+/*********************************************************
+ * check_integer()
+ *
+ * 1以上の整数値ですかどうかチェック
+ *
+ * [引数]
+ *      $size           quotaの桁数
+ * [返り値]
+ *      TRUE            正常
+ *      FALSE           異常
+ **********************************************************/
+function check_integer($str)
+{
+    /* 半角数字のみ許可 */
+    $num = "0123456789";
+    if (strspn($str, $num) != strlen($str)) {
+        return FALSE;
+    }
+
+    if ($str < 1) {
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+/***************************************************************************
+ * check_samma_mail
+ *
+ * ドメイン/メールアドレス形式チェック
+ *
+ * [引数]
+ *     $word         チェック文字
+ * [返り値]
+ *     TRUE          正常
+ *     FALSE         異常
+ **************************************************************************/
+function check_samma_mail($mail)
+{
+    global $err_msg;
+
+    /* メールアドレスの長さチェック */
+    $ret = strlen($mail);
+    if ($ret > MAXMAIL) {
+        $err_msg = "形式が不正です。";
+        return FALSE;
+    }
+
+    /* @で文字列を分割する */
+    $elements = explode('@', $mail);
+
+    /* 数を数える */
+    $num = count($elements);
+
+    /* 文字列のチェック */
+    switch ($num) {
+        case 1:
+            /* 文字種類チェック*/
+            $ret = check_str($elements[0], CHECK_STR1);
+            if ($ret === FALSE) {
+                return FALSE;
+            }
+            break;
+        case 2:
+            /* メールアドレスチェック*/
+            $ret = check_samma_domain($elements);
+            if ($ret === FALSE) {
+                return FALSE;
+            }
+            break;
+        default;
+            $err_msg = "形式が不正です。";
+            return FALSE;
+            break;
+    }
+
+    return TRUE;
+}
+
+/*********************************************************
+ * check_samma_domain()
+ *
+ * 内部ドメインメールアドレス形式のチェック
+ *
+ * [引数]
+ *      $mail        メールアドレス
+ * [返り値]
+ *      TRUE         正常
+ *      FALSE        異常
+ **********************************************************/
+function check_samma_domain($mail)
+{
+    global $err_msg;
+
+    /* @より前のチェック */
+    /* 文字種類チェック */
+    if (empty($mail[0]) === FALSE) {
+        $ret = check_str($mail[0], CHECK_STR2);
+        if ($ret === FALSE) {
+            return FALSE;
+        }
+    }
+
+    /*  @より後ろのチェック */
+    if (strlen($mail[1]) < 3) {
+        $err_msg = "形式が不正です。";
+        return FALSE;
+    }
+
+    $sym = "-_.";
+    $must = ".";
+    $must_not = "..";
+
+    /* ドットから始まればエラー */
+    $ret = substr($mail[1], 0, 1);
+    if ($ret == $must) {
+        $err_msg = "形式が不正です。";
+        return FALSE;
+    }
+
+    /* 1個以上のドットが必須 */
+    $ret = strpos($mail[1], $must);
+    if ($ret === FALSE) {
+        $err_msg = "形式が不正です。";
+        return FALSE;
+    }
+
+    /* 2個以上のドットの連続は禁止 */
+    $ret = strpos($mail[1], $must_not);
+    if ($ret !== FALSE) {
+        $err_msg = "形式が不正です。";
+        return FALSE;
+    }
+
+    /* 文字種類チェック */
+    $ret = check_str($mail[1], CHECK_STR1);
+    if ($ret === FALSE) {
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+/*********************************************************
+ * domain_sort()
+ *
+ * ドメインメール/アドレスソート関数
+ * (uksort関数から呼び出す関数)
+ *
+ **********************************************************/
+function domain_sort($a, $b)
+{
+    $str1 = explode("!", $a, 2);
+    if ($str1[0] != $a) {
+        $a = $str1[1];
+    }
+
+    $str2 = explode("!", $b, 2);
+    if ($str2[0] != $b) {
+        $b = $str2[1];
+    }
+
+    /* $aの方が小さければ「-1」を返す */
+    if ($a < $b) {
+        return -1;
+    } else {
+        return 1;
+    }
+}
+
+/***************************************************************************
+ * db_key_mod
+ *
+ * データベースの変更を行う(keyも変更する)
+ *
+ * [引数]
+ *  $dbpath        データベースのパス
+ *  $old_key       変更前キー
+ *  $new_key       変更キー
+ *  $value         変更値
+ * [返り値]
+ *  SUCCESS        正常
+ *  FAIL_EXIST     既にデータが登録されていた場合
+ *  FAIL_NO_EXIST  データが登録されていない場合
+ *  FAIL           異常
+ **************************************************************************/
+function db_key_mod($dbpath, $old_key, $new_key, $value)
+{
+    global $err_msg;
+
+    /* 存在チェック */
+    if (file_exists($dbpath) === FALSE) {
+        $err_msg = "ファイルが存在しません。(" . $dbpath . ")";
+        return FAIL;
+    }
+
+    /*  ディレクトリチェック */
+    if (is_dir($dbpath) === TRUE) {
+        $err_msg = "指定されたファイルはディレクトリです。(" . $dbpath . ")";
+        return FAIL;
+    }
+
+    /*  ファイルの書き込み権チェック */
+    if (is_writable($dbpath) === FALSE) {
+        $err_msg = "ファイルに書き込み権がありません。(" . $dbpath . ")";
+        return FAIL;
+    }
+
+    /* データベースのオープン */
+    $dbh = dba_popen($dbpath, "c", DB_HANDLER);
+    if ($dbh === FALSE) {
+        $err_msg = "ファイルのオープンに失敗しました。(" . $dbpath . ")";
+        return FAIL;
+    }
+
+    /* 表示用 */
+    $str = explode("!", $new_key, 2);
+    if ($str[0] != $new_key) {
+        $new_disp = $str[1];
+    } else {
+        $new_disp = $new_key;
+    }
+
+    /* 変更後データが既に存在しないかチェック */
+    $ret = dba_fetch($new_key, $dbh);
+    if ($ret !== FALSE) {
+        $err_msg = "既に登録されています。(" . $new_disp . ")";
+        dba_close($dbh);
+        return FAIL_EXIST;
+    }
+
+    /* 表示用 */
+    $str = explode("!", $old_key, 2);
+    if ($str[0] != $old_key) {
+        $old_disp = $str[1];
+    } else {
+        $old_disp = $old_key;
+    }
+
+    /* 変更前データが存在するかチェック */
+    $ret = dba_fetch($old_key, $dbh);
+    if ($ret === FALSE) {
+        $err_msg = "登録されていません。(" . $old_disp . ")";
+        dba_close($dbh);
+        return FAIL_NO_EXIST;
+    }
+
+    /* データの挿入 */
+    $ret = dba_insert($new_key, $value, $dbh);
+    if ($ret === FALSE) {
+        $err_msg = "DBファイルの更新に失敗しました。(" . $dbpath . ")";
+        dba_close($dbh);
+        return FAIL;
+    }
+
+    /* データの削除 */
+    $ret = dba_delete($old_key, $dbh);
+    if ($ret === FALSE) {
+        $err_msg = "DBファイルの更新に失敗しました。(" . $dbpath . ")";
+        dba_close($dbh);
+        return FAIL;
+    }
+
+    dba_close($dbh);
+    return SUCCESS;
+}
+
+/***************************************************************************
+ * ldap_enc_del
+ *
+ * LDAPエントリーの削除を行う
+ *
+ * [引数]
+ *  $userdn         ユーザのdnデータ 
+ *  $key            削除アドレスの配列
+ * [返り値]
+ *  LDAP_OK         正常
+ *  LDAP_ERR_BIND   バインドエラー
+ *  LDAP_ERR_NODATA エントリが存在しない
+ *  LDAP_ERR_DEL    LDAPのエントリの削除に失敗
+ *  LDAP_ERR_SEARCH サーチエラー
+ *  LDAP_ERR_PARAM  不正な引数入力
+ *  LDAP_ERR_OTHER  その他のエラー
+ **************************************************************************/
+function ldap_enc_del($userdn, $key)
+{
+    global $err_msg;
+    global $suc_msg;
+    $err_value = "";
+    $suc_value = "";
+
+    foreach ($key as $value) {
+
+        /* dnの作成 */
+        $del_dn = LDAP_filter_escape(sprintf(ENC_DN, $value, $userdn));
+
+        /* LDAPの削除 */
+        $ret = del_user_ldapdata($del_dn);
+
+        $str = explode("!", $value, 2);
+        if ($str[0] != $value) {
+            $value = $str[1];
+        }
+
+        /* エラーメッセージ作成 */
+        if ($ret === LDAP_OK) {
+            if ($suc_value == "") {
+                $suc_value .=  $value;
+            } else {
+                $suc_value .= ", " . $value;
+            }
+        } elseif ($ret === LDAP_ERR_NODATA) {
+            if ($err_value == "") {
+                $err_value .=  $value;
+            } else {
+                $err_value .= ", " . $value;
+            }
+        } else {
+            return $ret;
+        }
+    }
+
+    if ($err_value != "") {
+        if ($suc_value != "") {
+            $suc_msg = "削除に成功しました。(" . $suc_value . ")";
+        }
+        $err_msg = "削除に失敗しました。(" . $err_value . ")";
+        return LDAP_ERR_NODATA;
+    }
+
+    $suc_msg = "削除に成功しました。(" . $suc_value . ")";
+    return LDAP_OK;
+}
+
+/***************************************************************************
+ * ldap_mod
+ *
+ * LDAPの変更を行う(パスワードのみ)
+ *
+ * [引数]
+ *  $key           変更キー
+ *  $pass          パスワード	
+ * [返り値]
+ *  SUCCESS		正常
+ *  FAIL_NO_EXIST	データが登録されていない場合
+ *  FAIL		異常
+ **************************************************************************/
+function ldap_mod($key, $value)
+{
+    global $err_msg;
+    global $userdn;
+
+    /* 表示用 */
+    $str = explode("!", $key, 2);
+    if ($str[0] != $key) {
+        $disp = $str[1];
+    } else {
+        $disp = $key;
+    }
+
+    /* パスワードがなければ削除 */
+    if ($value != "") {
+        $attrs["mailEncryptionPassword"] = $value;
+    } else {
+        $attrs["mailEncryptionPassword"] = array();
+    }
+
+    /* DN作成 */
+    $dn = LDAP_filter_escape(sprintf(ENC_DN, $key, $userdn));
+
+    /* LDAPデータの更新 */
+    $ret = LDAP_mod_entry($dn, $attrs);
+    if ($ret === LDAP_ERR_NODATA) {
+        return FAIL_NO_EXIST;
+    } elseif ($ret !== LDAP_OK) {
+        $err_msg = "受信者設定の更新に失敗しました。(" . $disp . ")";
+        return FAIL;
+    }
+
+    return SUCCESS;
+}
+
+/***************************************************************************
+ * ldap_key_mod
+ *
+ * LDAPの変更を行う(keyも変更する)
+ *
+ * [引数]
+ *  $old_key       変更前キー
+ *  $key           変更キー
+ *  $value         変更値
+ * [返り値]
+ *  SUCCESS		正常
+ *  FAIL_EXIST		異常(エントリ存在)
+ *  FAIL		異常
+ **************************************************************************/
+function ldap_key_mod($old_key, $new_key, $value)
+{
+    global $err_msg;
+    global $userdn;
+
+    /* 変更後キーのエントリ追加 */
+    /* LDAP登録する必須属性のセット */
+    $attr = array("objectClass" => SAMMA_OBJECT,
+		  "mailEncryptionAddr" => $new_key);
+
+    if ($value != "") {
+        $attr["mailEncryptionPassword"] = $value;
+    }
+
+    $dn = LDAP_filter_escape(sprintf(ENC_DN, $new_key, $userdn));
+
+    /* LDAPへ追加 */
+    $ret = LDAP_add_entry($dn, $attr);
+    if ($ret === LDAP_ERR_DUPLICATE) {
+        return FAIL_EXIST;
+    } elseif ($ret !== LDAP_OK) {
+        return FAIL;
+    }
+
+    /* 変更前キーのエントリ削除 */
+    $del_dom[] = $old_key;
+    $ret = ldap_enc_del($userdn, $del_dom);
+    If ($ret === LDAP_ERR_NODATA) {
+        return FAIL_NO_EXIST;
+    } elseif ($ret !== LDAP_OK) {
+        return FAIL;
+    }
+
+    return SUCCESS;
+}
+
+/***************************************************************************
+ * page_location_search()
+ *
+ * チェックボックス, 検索条件保持のロケーションを行う(強制的にexitします)
+ *
+ * [引数]
+ *     $url   ロケーション先
+ *     $msg   メッセージ
+ *     $bread チェックボックスデータ配列
+ * [返り値]
+ *     なし
+ ***************************************************************************/
+function page_location_search($url, $msg = NULL, $bread = array())
+{
+    global $sesskey;
+    global $filter;
+    global $page;
+    global $form_name;
+    global $name_match;
+    global $dn;
+
+     output_http_header();
+     display_header();
+
+    print <<<EOD
+
+<body onload="dgpSubmit('$url')">
+処理中...
+<script type="text/javascript">
+<!--
+function dgpSubmit(url) {
+    document.common.action = url;
+    document.common.submit();
+}
+// -->
+</script>
+<form method="post" name="common">
+<input type="hidden" name="sk" value="$sesskey">
+<input type="hidden" name="page" value="$page">
+<input type="hidden" name="filter" value="$filter">
+<input type="hidden" name="form_name" value="$form_name">
+<input type="hidden" name="name_match" value="$name_match">
+<input type="hidden" name="dn" value="$dn">
+
+EOD;
+
+    /* データが空ではなかったとき */
+    if (empty($bread) === FALSE) {
+        foreach ($bread as $key => $val) {
+            print("<input type=\"hidden\" name=\"delete[]\" value=\"" .
+                  escape_html($val) . "\">");
+        }
+    }
+
+    /* メッセージがある場合 */
+    if (is_null($msg) === FALSE) {
+        print <<<EOD
+<input type="hidden" name="msg" value="$msg">
+
+EOD;
+    }
+
+print <<<EOD
+</form>
+</body>
+</html>
+
+EOD;
+
+    exit;
+}
+
+/*********************************************************
+ * get_user_data()
+ *
+ * ユーザの受信者設定取得
+ *
+ * [引数]
+ *      $userdn         ユーザ名
+ *      $rp_data        取得データ(連想配列)
+ * [返り値]
+ *       TRUE         正常
+ *       FALSE        異常
+ **********************************************************/
+function get_user_data($userdn, &$rp_data)
+{
+    global $err_msg;
+
+    $filter = sprintf(OBJECT_DN, SAMMA_OBJECT);
+    $attrs = array();
+
+    /* メッセージ退避 */
+    $msg = "";
+    if ($err_msg != "") {
+        $msg = $err_msg;
+    }
+
+    /* エントリの取得 */
+    $ret = main_get_entry($userdn, $filter, $attrs, TYPE_ONELEVEL, $ldapdata);
+    if ($ret === LDAP_ERR_NODATA) {
+        /* データなしはエラーにしない(前のメッセージを引き継ぐ) */
+        $err_msg = $msg;
+        return TRUE;
+    } elseif ($ret !== LDAP_OK) {
+        return FALSE;
+    }
+
+    /* 値整形 */
+    $count = count($ldapdata);
+
+    for ($i = 0; $i < $count; $i++) {
+        if (isset($ldapdata[$i]["mailEncryptionAddr"][0]) === TRUE) {
+            $dom = $ldapdata[$i]["mailEncryptionAddr"][0];
+            $rp_data[$dom] = "";
+            if (isset($ldapdata[$i]["mailEncryptionPassword"][0]) === TRUE) {
+                $rp_data[$dom] = $ldapdata[$i]["mailEncryptionPassword"][0];
+            }
+        }
+    }
+
+    return TRUE;
+}
+
+/*********************************************************
+ * check_rcptadd_data
+ *
+ * 追加データの形式チェック
+ *
+ * [引数]
+ *      $add_data       追加データ
+ *
+ * [返り値]
+ *      TRUE            正常
+ *      FALSE           異常
+ **********************************************************/
+function check_rcptadd_data($add_data)
+{
+    global $err_msg;
+
+    /* 空チェック */
+    if ($add_data["domain"] == "") {
+        $err_msg = "ドメイン名/メールアドレスが入力されていません。";
+        return FALSE;
+    }
+
+    /* ラジオボタンチェック */
+    if (isset($add_data["password"])) {
+        if (check_flg($add_data["password"]) === FALSE ||
+                check_flg($add_data["rule"]) === FALSE) {
+            $err_msg = "選択データの値が不正です。";
+            return FALSE;
+        }
+
+        /* パスワードチェック(個別選択時) */
+        if ($add_data["password"] == 0) {
+            /* 空チェック */
+            if ($add_data["indivipass"] == "") {
+                $err_msg = "パスワードが入力されていません。" ;
+                return FALSE;
+            }
+            /* 形式チェック */
+            if (check_samma_pass($add_data["indivipass"]) === FALSE) {
+                $err_msg = "暗号化" . $err_msg;
+                return FALSE;
+            }
+        }
+    }
+
+    /* ドメイン名/メールアドレス形式チェック */
+    if (check_samma_mail($add_data["domain"]) === FALSE) {
+        $err_msg = "ドメイン名/メールアドレスの形式が不正です。";
+        return FALSE;
+    }
+
+    if (isset($add_data["extension"])) {
+        /* 拡張子形式チェック */
+        if (check_extension($add_data["extension"]) === FALSE) {
+            $err_msg = "拡張子の形式が不正です。";
+            return FALSE;
+        }
+    }
+
+    return TRUE;
+
+}
+/*********************************************************
+ * add_rcpt_data
+ *
+ * データの追加
+ *
+ * [引数]
+ *      $add_data       追加データ
+ *
+ * [返り値]
+ *      SUCCESS        正常
+ *      FAIL           異常
+ *      FAIL_EXIST     異常(既にデータあり)
+ **********************************************************/
+function add_rcpt_data($add_data)
+{
+    global $err_msg;
+    global $web_conf;
+    global $url_data;
+    global $userdn;
+
+    /* LDAP登録する必須属性のセット */
+    $attr = array("objectClass" => SAMMA_OBJECT);
+
+    /* 登録データ作成 */
+    $key = $add_data["domain"];
+    $check_key = "!" . $key;
+    if ($add_data["rule"] == 0) {
+        $key = "!" . $key;
+        $check_key = $key;
+    }
+
+    /* 重複チェック */
+    /* 対象は既に"!"がないか、非対象は"！"なしがいないか */
+    $filter = "objectClass=" . SAMMA_OBJECT;
+    $check_attrs = array("mailEncryptionAddr");
+    $checkdn = LDAP_filter_escape(sprintf(ENC_DN, $check_key, $userdn));
+
+    /* エントリの取得 */
+    $ret = main_get_entry($checkdn, $filter, $check_attrs, TYPE_SUBTREE, $ldapdata);
+    if ($ret === LDAP_OK) {
+        $str = explode("!", $key, 2);
+        if ($str[0] != $key) {
+            $disp = $str[1];
+        } else {
+            $disp = $key;
+        }
+        $err_msg = "受信者設定が既に存在します。(" . $disp . ")";
+        return FAIL_EXIST;
+    } elseif ($ret !== LDAP_ERR_NODATA) {
+        return FAIL;
+    }
+
+    $attr["mailEncryptionAddr"] = $key;
+
+    if ($add_data["password"] == 0) {
+        $attr["mailEncryptionPassword"] = $add_data["indivipass"];
+    }
+
+    $dn = LDAP_filter_escape(sprintf(ENC_DN, $key, $userdn));
+
+    /* LDAPへ追加 */
+    $ret = LDAP_add_entry($dn, $attr);
+    if ($ret === LDAP_ERR_DUPLICATE) {
+        return FAIL_EXIST;
+    } elseif ($ret !== LDAP_OK) {
+        return FAIL;
+    }
+
+    return SUCCESS;
+
+}
+
+/*********************************************************
+ * check_rcptmod_data
+ *
+ * 変更データの形式チェック
+ *
+ * [引数]
+ *      $mod_data       変更データ
+ *
+ * [返り値]
+ *      TRUE            正常
+ *      FALSE           異常
+ **********************************************************/
+function check_rcptmod_data(&$mod_data)
+{
+    global $err_msg;
+
+    /* 空チェック */
+    if ($mod_data["domain"] == "" || $mod_data["disp_dom"] == "") {
+        $err_msg = "ドメイン名/メールアドレスの形式が不正です。";
+        return FALSE;
+    }
+
+    /* ラジオボタンチェック */
+    if (isset($mod_data["password"])) {
+        if (check_flg($mod_data["password"]) === FALSE ||
+                check_flg($mod_data["rule"]) === FALSE) {
+            $err_msg = "選択データの値が不正です。";
+            return FALSE;
+        }
+
+        /* パスワードチェック(個別選択時) */
+        if ($mod_data["password"] == 0) {
+            /* 空チェック */
+            if ($mod_data["indivipass"] == "") {
+                $err_msg = "パスワードが入力されていません。" ;
+                return FALSE;
+            }
+            /* 形式チェック */
+            if (check_samma_pass($mod_data["indivipass"]) === FALSE) {
+                return FALSE;
+            }
+        } else {
+            $mod_data["indivipass"] = "";
+        }
+    }
+
+    /* ドメイン名/メールアドレス形式チェック */
+    if (check_samma_mail($mod_data["disp_dom"]) === FALSE) {
+        $err_msg = "ドメイン名/アドレスの形式が不正です。";
+        return FALSE;
+    }
+
+    if (isset($mod_data["extension"])) {
+        /* 拡張子形式チェック */
+        if (check_extension($mod_data["extension"]) === FALSE) {
+            $err_msg = "拡張子の形式が不正です。";
+            return FALSE;
+        }
+    }
+
+    return TRUE;
+
+}
+
+/*********************************************************
+ * mod_rcpt_data
+ *
+ * データの更新
+ *
+ * [引数]
+ *      $mod_data       変更データ
+ *      $old_rule       変更前暗号化ルール
+ *
+ * [返り値]
+ *      SUCCESS		正常
+ *      FAIL		異常
+ *      FAIL_NO_EXIST	異常(データなし)
+ *      FAIL_EXIST	異常(データ既にあり)
+ **********************************************************/
+function mod_rcpt_data($mod_data,  $old_rule)
+{
+
+    /* 登録データ作成 */
+    $old_key = $mod_data["domain"];
+
+    /* 対象から非対象へ変更 */
+    if ($old_rule == 1 && $mod_data["rule"] == 0) {
+        $key = "!" . $old_key;
+    /* 非対象から対象へ変更 */
+    } elseif ($old_rule == 0 && $mod_data["rule"] == 1) {
+        $str = explode("!", $mod_data["domain"], 2);
+        $key = $str[1];
+    /* 変更なし */
+    } else {
+        $key = $old_key;
+    }
+
+    /* パスワード */
+    $value = "";
+    if ($mod_data["password"] == 0) {
+        $value = $mod_data["indivipass"];
+    }
+
+    /* 暗号化ルール変更がない場合はそのまま変更 */
+    if ($old_rule == $mod_data["rule"]) {
+
+        /* LDAP更新 */
+        $ret = ldap_mod($key, $value);
+        if ($ret !== SUCCESS) {
+            return $ret;
+        }
+    } else {
+        /* LDAP更新(キーも変更) */
+        $ret = ldap_key_mod($old_key, $key, $value);
+        if ($ret !== SUCCESS) {
+            return $ret;
+        }
+    }
+
+    return SUCCESS;
+
+}
+
+/*********************************************************
+ * get_one_data
+ *
+ * データ取得
+ *
+ * [引数]
+ *      $key            検索キー
+ *      $data           取得データ(連想配列・参照渡し)
+ *
+ * [返り値]
+ *      TRUE            正常
+ *      FALSE           異常
+ **********************************************************/
+function get_one_data($key, &$data)
+{
+    global $err_msg;
+    global $userdn;
+
+    $filter = sprintf(OBJECT_DN, SAMMA_OBJECT);
+    $attrs = array();
+    $dn = LDAP_filter_escape(sprintf(ENC_DN, $key, $userdn));
+
+    /* データ取得 */
+    $ret = main_get_entry($dn, $filter, $attrs, TYPE_SUBTREE, $ldapdata);
+    if ($ret !== LDAP_OK) {
+        return FALSE;
+    }
+
+    /* データ整形 */
+    $domain = $key;
+    $rule = EFFECT;
+    $password = RANDOM;
+    $indivipass = "";
+
+    /* 対象or非対象 */
+    $str = explode("!", $key, 2);
+    if ($str[0] != $key) {
+        $domain = $str[1];
+        $rule = INEFFECT;
+    }
+
+    /* パスワード */
+    if (isset($ldapdata[0]["mailEncryptionPassword"][0]) === TRUE) {
+        $password = INDIVI;
+        $indivipass = $ldapdata[0]["mailEncryptionPassword"][0];
+    }
+
+    /* 表示用配列へ代入 */
+    $data["disp_dom"] = $domain;
+    $data["domain"] = $key;
+    $data["rule"] = $rule;
+    $data["password"] = $password;
+    $data["indivipass"] = $indivipass;
+
+    return TRUE;
+
+}
+
+/*********************************************************
+ * LDAP_filter_escape()
+ * フィルタのエスケープ
+ *
+ * フィルタに指定される文字列(#, +)をエスケープします。
+ *
+ * [引数]
+ *      $str   エスケープする文字列
+ * [返り値]
+ *      string エスケープ後の文字列
+ **********************************************************/
+function LDAP_filter_escape($str)
+{
+    $trans = array("#" => "\\#",
+                   "+" => "\\+");
+
+    return strtr($str, $trans);
+}
+
+/*********************************************************
+ * check_ip_addr
+ *
+ * IPアドレスのチェック
+ *
+ * [引数]
+ *	$ipaddr		チェックしたいデータ
+ *
+ * [返り値]
+ *	正常		TRUE
+ *	異常		FALSE
+ **********************************************************/
+function check_ip_addr($ipaddr)
+{
+    global $err_msg;
+
+    /* 「.」の数をチェック */
+    $ip_num = explode(".", $ipaddr);
+    $max = count($ip_num);
+    /* 数字が４つ・「.」は３つ */
+    if ($max != 4) {
+        $err_msg = "形式が不正です。";
+        return FALSE;
+    }
+
+    /* 各数字のチェック */
+    for ($i = 0; $i < $max; $i++) {
+        /* 空だったらエラー */
+        if ($ip_num[$i] === "") {
+           $err_msg = "形式が不正です。";
+            return FALSE;
+        }
+        /* 数字じゃなかったらエラー */
+        $num = "1234567890";
+        $spn = strspn($ip_num[$i], $num);
+        $len = strlen($ip_num[$i]);
+        if ($spn != $len) {
+            $err_msg = "形式が不正です。";
+            return FALSE;
+        }
+        /* 0以上〜255以下か */
+        if ($ip_num < 0 || $ip_num[$i] > 255) {
+            $err_msg = "形式が不正です。";
+            return FALSE;
+        }
+
+    }
+    return TRUE;
+}
+/***************************************************************************
+ * extension_db_del
+ *
+ * 拡張子データベースの削除を行う
+ *
+ * [引数]
+ *  $dbpath    データベースのパス
+ *  $key_data  削除キーの配列
+ * [返り値]
+ *  SUCCESS    正常
+ *  FAIL       異常
+ *  FAIL_DEL   削除できないものがあった場合
+ **************************************************************************/
+function extension_db_del($dbpath, $key_data)
+{
+    global $suc_msg;
+    global $err_msg;
+    $suc_value = "";
+    $err_value = "";
+
+    /* 存在チェック */
+    if (file_exists($dbpath) === FALSE) {
+        $err_msg = "ファイルが存在しません。(" . $dbpath . ")";
+        return FAIL;
+    }
+
+    /*  ディレクトリチェック */
+    if (is_dir($dbpath) === TRUE) {
+        $err_msg = "指定されたファイルはディレクトリです。(" . $dbpath . ")";
+        return FAIL;
+    }
+
+    /*  ファイルの書き込み権チェック */
+    if (is_writable($dbpath) === FALSE) {
+        $err_msg = "ファイルに書き込み権がありません。(" . $dbpath . ")";
+        return FAIL;
+    }
+
+    /* データベースのオープン */
+    $dbh = dba_popen($dbpath, "c", DB_HANDLER);
+    if ($dbh === FALSE) {
+        $err_msg = "ファイルのオープンに失敗しました。(" . $dbpath . ")";
+        return FAIL;
+    }
+
+    /* データの削除 */
+    foreach ($key_data as $value) {
+
+        /* 対象or非対象 */
+        $str = explode("!", $value, 2);
+        if ($str[0] != $value) {
+            $value = $str[1];
+        }
+
+        /* データがあるか確認 */
+        $ret = dba_fetch($value, $dbh);
+        if ($ret === FALSE) {
+            /* データが無ければ飛ばす */
+            continue;
+        }
+
+        /* データがあれば削除 */
+        $ret = dba_delete($value, $dbh);
+
+        /* エラーメッセージ作成 */
+        if ($ret === FALSE) {
+            if ($err_value == "") {
+                $err_value .=  $value;
+            } else {
+                $err_value .= ", " . $value;
+            }
+
+        /* 成功メッセージ作成 */
+        } else {
+            if ($suc_value == "") {
+                $suc_value .=  $value;
+            } else {
+                $suc_value .= ", " . $value;
+            }
+        }
+    }
+    if ($err_value != "") {
+        if ($suc_value != "") {
+            $suc_msg = "削除に成功しました。(" . $suc_value . ")";
+        }
+        $err_msg = "削除に失敗しました。(" . $err_value . ")";
+        dba_close($dbh);
+        return FAIL_DEL;
+    }
+
+    if ($suc_value == "") {
+        dba_close($dbh);
+        return NO_CHANGE;
+    }
+    $suc_msg = "削除に成功しました。(" . $suc_value . ")";
+
+    dba_close($dbh);
+    return SUCCESS;
+}
+
+/***************************************************************************
+ * extension_db_mod
+ *
+ * 拡張子のデータベースの変更を行う(valueのみ)
+ *
+ * [引数]
+ *  $dbpath        データベースのパス
+ *  $key           変更キー
+ *  $value         変更値
+ * [返り値]
+ *  SUCCESS        正常
+ *  FAIL_NO_EXIST  データが登録されていない場合
+ *  FAIL           異常
+ **************************************************************************/
+function extension_db_mod($dbpath, $key, $value)
+{
+    global $err_msg;
+    global $ex_db_file;
+    global $ex_db_type;
+
+    /* 存在チェック */
+    if (file_exists($dbpath) === FALSE) {
+        $err_msg = "ファイルが存在しません。(" . $dbpath . ")";
+        return FAIL;
+    }
+
+    /*  ディレクトリチェック */
+    if (is_dir($dbpath) === TRUE) {
+        $err_msg = "指定されたファイルはディレクトリです。(" . $dbpath . ")";
+        return FAIL;
+    }
+    /*  ファイルの書き込み権チェック */
+    if (is_writable($dbpath) === FALSE) {
+        $err_msg = "ファイルに書き込み権がありません。(" . $dbpath . ")";
+        return FAIL;
+    }
+
+    /* データベースのオープン */
+    $dbh = dba_popen($dbpath, "c", DB_HANDLER);
+    if ($dbh === FALSE) {
+        $err_msg = "ファイルのオープンに失敗しました。(" . $dbpath . ")";
+        return FAIL;
+    }
+
+    /* 暗号化ルールの!を削除 */
+    $str = explode("!", $key, 2);
+    if ($str[0] != $key) {
+        /* 非対象 */
+        $key = $str[1];
+    }
+
+    /* データが存在するかチェック */
+    $ret = dba_fetch($key, $dbh);
+    if ($ret === FALSE) {
+        /* データが無ければ登録を行う */
+        dba_close($dbh);
+        $ret = extension_db_add($ex_db_file, $ex_db_type, $key, $value);
+        if ($ret !== SUCCESS) {
+            dba_close($dbh);
+            return $ret;
+        }
+        return SUCCESS;
+    }
+
+    /* データの変更 */
+    $ret = dba_replace($key, $value, $dbh);
+    if ($ret === FALSE) {
+        $err_msg = "DBファイルの更新に失敗しました。(" . $dbpath . ")";
+        dba_close($dbh);
+        return FAIL;
+    }
+
+    dba_close($dbh);
+    return SUCCESS;
+}
+
+/***************************************************************************
+ * extension_db_add
+ *
+ * データベースの登録を行う
+ *
+ * [引数]
+ *  $dbpath     データベースのパス
+ *  $dbtype     データベースの形式
+ *  $key        登録キー
+ *  $value      登録値
+ * [返り値]
+ *  SUCCESS     正常
+ *  FAIL_EXIST  既にデータが登録されていた場合
+ *  FAIL        異常
+ **************************************************************************/
+function extension_db_add($dbpath, $dbtype, $key, $value)
+{
+    global $err_msg;
+
+    /* ファイルの書き込み権チェック */
+    /* 存在チェック */
+    if (file_exists($dbpath) === FALSE) {
+        /* 空DB作成 */
+        $type = 0;
+        if ($dbtype == "btree") {
+            $type = 1;
+        }
+        if (make_db($dbpath, $type) === FALSE) {
+            $err_msg = "DB用の" . $err_msg;
+            return FAIL;
+        }
+    } else {
+        /*  ディレクトリチェック */
+        if (is_dir($dbpath) === TRUE) {
+            $err_msg = "指定されたファイルはディレクトリです。($dbpath)";
+            return FAIL;
+        }
+        /*  ファイルの書込み権チェック */
+        if (is_writable($dbpath) === FALSE) {
+            $err_msg = "ファイルに書込み権がありません。($dbpath)";
+            return FAIL;
+        }
+    }
+
+    /* 拡張子の値があるか */
+    if ($value === "") {
+        return NO_CHANGE;
+    }
+
+    /* データベースのオープン */
+    $dbh = dba_popen($dbpath, "c", DB_HANDLER);
+    if ($dbh === FALSE) {
+        $err_msg = "ファイルのオープンに失敗しました。(" . $dbpath . ")";
+        return FAIL;
+    }
+    /* データが既に存在しないかチェック */
+    $ret = dba_fetch($key, $dbh);
+    if ($ret !== FALSE) {
+        $err_msg = "既に登録されています。(" . $key . ")";
+        dba_close($dbh);
+        return FAIL_EXIST;
+    }
+
+    /* データの挿入 */
+    $ret = dba_insert($key, $value, $dbh);
+    if ($ret === FALSE) {
+        $err_msg = "DBファイルの更新に失敗しました。(" . $dbpath . ")";
+        dba_close($dbh);
+        return FAIL;
+    }
+
+    dba_close($dbh);
+    return SUCCESS;
+}
+
+/***************************************************************************
+ * check_session
+ *
+ * 無害化設定のセッションチェック
+ *
+ * [引数]
+ *  $last_update    一時ファイルの最終更新日
+ * [返り値]
+ *  FAIL            他の人が操作
+ *  SUCCESS         正常
+ *  TIMEOUT_ERR         タイムアウト
+ **************************************************************************/
+function check_session()
+{
+    global $err_msg;
+    global $log_msg;
+    global $web_conf;
+    global $samma_conf;
+
+    /* 設定ファイルのタイムアウト秒数 */
+    $timeout = $web_conf["postldapadmin"]["harmlesstimeout"];
+
+    /* 一時ファイルのパス作成 */
+    $tmpfile_path = $samma_conf["harmlessconf"] . ".tmp";
+
+    /* 一時ファイル存在確認 */
+    if (file_exists($tmpfile_path) === FALSE) {
+        return NO_USE;
+    }
+    /* 一時ファイルの更新日時取得 */
+    clearstatcache();
+    $last_update = filemtime($tmpfile_path);
+    if ($last_update === FALSE) {
+        $err_msg = sprintf('ファイルの更新日時取得に失敗しました。(%s)', $tmpfile_path);
+        $log_msg = sprintf('Failed to get last update date of the file.(%s)', $tmpfile_path);
+        return SYSTEM_ERR;
+    }
+
+    if ($last_update + $timeout < time()) {
+        /* タイムアウトしている */
+        /* セッションに保存した最終更新時間と、
+           ファイルから取得した最終更新時間が同じ */
+        if (isset($_SESSION['timeout']) && $last_update == $_SESSION['timeout']) {
+            /* 操作しているのは本人だがタイムアウトしている */
+            $err_msg = 'タイムアウトしました。';
+            $log_msg = 'Timed out.';
+            result_log($log_msg);
+
+            /* セッション終了 */
+            if (end_session() === FALSE) {
+                return SYSTEM_ERR;
+            }
+
+            if (unlink($tmpfile_path) === FALSE) {
+                $err_msg = '一時ファイルの削除に失敗しました。';
+                $log_msg = 'Failed to delete temporary file.';
+                return SYSTEM_ERR;
+            }
+
+            return TIMEOUT_ERR;
+
+        } else {
+            /* 操作しているのは本人ではないがタイムアウトしている */
+            return NO_USE;
+        }
+    } else {
+
+        if (isset($_SESSION['timeout']) &&
+            $last_update == $_SESSION['timeout']) {
+            /* 操作しているのは本人でタイムアウトしていない */
+            return NOW_USE;
+        } else {
+            /* 操作しているのは本人ではなくタイムアウトしていない */
+            $err_msg = '他の人が操作中です。';
+            $log_msg = 'Another person is in operation.';
+            result_log($log_msg);
+
+            /* セッション終了 */
+            if (end_session() === FALSE) {
+                return SYSTEM_ERR;
+            }
+
+            return FAIL;
+        }
+    }
+}
+
+/***************************************************************************
+ * end_session
+ *
+ * セッションを終了する
+ *
+ * [引数]
+ *  -
+ * [返り値]
+ *  TRUE          正常
+ *  FALSE         異常
+ **************************************************************************/
+function end_session()
+{
+    $_SESSION = array();
+    if (session_destroy() === FALSE) {
+        $err_msg = "セッションの終了に失敗しました。";
+        $log_msg = 'Session termination failed.';
+        result_log($log_msg);
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+?>
