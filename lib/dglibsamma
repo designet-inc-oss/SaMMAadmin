@@ -49,6 +49,7 @@ define("NO_USE", -7);
 define("NOW_USE", -8);
 define("TIMEOUT_ERR", -9);
 define("SYSTEM_ERR", -10);
+define("COMMAND_ERR", -11);
 
 /* 制限値 */
 define("DIR_MIN", 1);
@@ -556,6 +557,107 @@ function write_file($filepath, $encode, $data)
 }
 
 /*********************************************************
+ * read_command_conf()
+ *
+ * コマンド設定ファイルを読み込み、
+ * 設定情報を連想配列 $command_list に格納
+ *
+ * [引数]
+ *	$command_file	設定ファイルパス
+ *	$command_list	コマンドリスト（参照渡し）
+ * [返り値]
+ *       TRUE          正常
+ *       FALSE         異常
+ **********************************************************/
+function read_command_conf($command_file, &$command_list)
+{
+    global $err_msg;
+
+    /* ファイルの読み込み権チェック */
+    if (is_readable_file($command_file) === FALSE) {
+        $err_msg = escape_html($err_msg);
+        return FALSE;
+    }
+
+    /* ファイルをオープン */
+    $fp = fopen($command_file, "r");
+    if ($fp === FALSE) {
+        $err_msg = "ファイルがオープンできません。(" .
+                   escape_html($command_file) . ")";
+        return FALSE;
+    }
+
+    /* 行の初期値 */
+    $line = 0;
+
+    /* ファイル読み込み */
+    while (feof($fp) === FALSE) {
+        /* 一行分をバッファに格納 */
+        $buf = fgets($fp);
+        if ($buf === FALSE) {
+            break;
+        }
+        /* 行末の空白と改行を削除 */
+        $buf = rtrim($buf);
+        $line++;
+
+        /* 行の頭が#のコメント行であれば無視 */
+        if (substr($buf, 0, 1) == "#") {
+            continue;
+        }
+
+        /* 空行であれば無視 */
+        if (strlen($buf) == 0) {
+            continue;
+        }
+
+        /* 行の始めの区切り文字(空白)で分割 */
+        $data = preg_split("/\s+/", $buf, 2);
+
+        /* 値がnull,パラメータの先頭が空白であれば、エラー */
+        if (($data[0] == "") || ($data[1] == "") ||
+                                 substr("$data[1]", 0, 1) == " ") {
+            fclose($fp);
+            set_error($command_file, $line);
+            return FALSE;
+        }
+
+        /* コマンドが存在しなければエラー */
+        if (file_exists($data[0]) === FALSE) {
+            $err_msg = "{$data[0]}コマンドが存在しません。(" .
+            escape_html($command_file) . ": {$line}行目)";
+            fclose($fp);
+            return FALSE;
+        }
+
+        /* コマンドをチェック */
+        if (check_command($data[0]) === FALSE) {
+            fclose($fp);
+            set_error($command_file, $line);
+            return FALSE;
+        }
+
+        /* コマンドを小文字化して格納 */
+        $key = strtolower($data[0]);
+
+        /* 重複チェック */
+        if (isset($command_list[$key]) && $command_list[$key] === $key) {
+            $err_msg = "{$data[0]}コマンドが重複しています。(" .
+            escape_html($command_file) . ": {$line}行目)";
+            fclose($fp);
+            return FALSE;
+        }
+
+        /* 値を格納する */
+        $command_list[$key] = $data[1];
+    }
+
+    fclose($fp);
+    return TRUE;
+}
+
+
+/*********************************************************
  * read_samma_conf()
  *
  * SaMMA設定ファイルを読み込み、
@@ -836,6 +938,51 @@ function check_content_type($str)
 }
 
 /*********************************************************
+ * check_exist_command
+ *
+ * コマンドがコマンド一覧に存在するかチェック
+ *
+ * [引数]
+ *      $com_conf_file   コマンド一覧ファイル
+ *      $command       コマンド
+ * [返り値]
+ *       TRUE          正常
+ *       FALSE         異常
+ **********************************************************/
+function check_exist_command($com_conf_file, $command)
+{
+    global $err_msg;
+    global $samma_conf;
+
+    
+
+    /* コマンド設定取得 */
+    $ret = read_command_conf($com_conf_file, $com_list);
+    if ($ret === FAIL) {
+        result_log(OPERATION . ":NG:" . $err_msg);
+        return FAIL;
+    }
+
+    // $commandが""の場合はチェックしない
+    if($command !== "") {
+        /* コマンドが一覧に存在するか */
+        if(isset($com_list["$command"]) === FALSE) {
+            $err_msg = "選択データの値が不正です。";
+            return FALSE;
+        }
+
+        /* コマンド存在チェック */
+        if (file_exists($command) === FALSE) {
+            $err_msg = "コマンドが存在しません。";
+            return FALSE;
+        }
+    }
+
+    return TRUE;
+
+}
+
+/*********************************************************
  * check_extension
  *
  * 拡張子入力値チェック
@@ -919,7 +1066,8 @@ function mod_samma_conf(&$new_samma_conf)
         /* dbファイル名・形式は無視 */
         if ($key == "sd_dbfile" || $key == "sd_dbtype" ||
             $key == "rp_dbfile" || $key == "rp_dbtype" ||
-            $key == "ex_dbfile" || $key == "ex_dbtype") {
+            $key == "ex_dbfile" || $key == "ex_dbtype" ||
+            $key == "com_dbfile" || $key == "com_dbtype") {
             continue;
         }
 
@@ -1830,6 +1978,14 @@ function check_rcptadd_data($add_data)
         }
     }
 
+    if (isset($add_data["command"]) && $add_data["command"] !== "") {
+        /* コマンド存在チェック */
+        if (file_exists($add_data["command"]) === FALSE) {
+            $err_msg = "コマンドが存在しません。";
+            return FALSE;
+        }
+    }
+
     return TRUE;
 
 }
@@ -1965,8 +2121,13 @@ function check_rcptmod_data(&$mod_data)
         }
     }
 
+    if (isset($mod_data["command"])) {
+        if ($mod_data["command"] === "no_change") {
+            /* 変更なしならTRUE */
+            return TRUE;
+        }
+    }
     return TRUE;
-
 }
 
 /*********************************************************
@@ -2261,6 +2422,7 @@ function extension_db_del($dbpath, $key_data)
  *
  * [引数]
  *  $dbpath        データベースのパス
+ *  $dbtype        データベースのタイプ
  *  $key           変更キー
  *  $value         変更値
  * [返り値]
@@ -2268,12 +2430,10 @@ function extension_db_del($dbpath, $key_data)
  *  FAIL_NO_EXIST  データが登録されていない場合
  *  FAIL           異常
  **************************************************************************/
-function extension_db_mod($dbpath, $key, $value)
+function extension_db_mod($dbpath, $dbtype, $key, $value)
 {
     global $err_msg;
-    global $ex_db_file;
-    global $ex_db_type;
-
+    
     /* 存在チェック */
     if (file_exists($dbpath) === FALSE) {
         $err_msg = "ファイルが存在しません。(" . $dbpath . ")";
@@ -2310,7 +2470,7 @@ function extension_db_mod($dbpath, $key, $value)
     if ($ret === FALSE) {
         /* データが無ければ登録を行う */
         dba_close($dbh);
-        $ret = extension_db_add($ex_db_file, $ex_db_type, $key, $value);
+        $ret = extension_db_add($dbpath, $dbtype, $key, $value);
         if ($ret !== SUCCESS) {
             dba_close($dbh);
             return $ret;
