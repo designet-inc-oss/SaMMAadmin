@@ -55,10 +55,12 @@ define("TMPLFILE", "samma/samma_admin_rcpt_add.tmpl");
  *       なし
  **********************************************************/
 function set_tag_data(&$tag) {
+    global $err_msg;
     global $sesskey;
     global $del_list;
     global $add_data;
     global $samma_conf;
+    global $web_conf;
 
     /* ドメイン */
     $domain = "";
@@ -102,6 +104,34 @@ function set_tag_data(&$tag) {
         }
     }
 
+    $command = "";
+    $com_name = "";
+    if (isset($samma_conf["commanddb"]) === TRUE) {
+        $ret = read_command_conf($web_conf["postldapadmin"]["commandconf"], $command_list);
+        if ($ret === FALSE) {
+            result_log(OPERATION . ":NG:" . $err_msg);
+            syserr_display();
+            exit (1);
+        }
+
+        /* コマンドは設定ファイルの一覧から取得する */
+        $html_command = "<option value=\"$command\">$com_name";
+
+        foreach($command_list as $command=>$com_name) {
+
+            /* コマンド */
+            if (isset($add_data["command"]) && $add_data["command"] === $command) {
+                $command = escape_html($add_data["command"]);
+                $com_name = escape_html($com_name);
+                $html_command .= "<option value=\"$command\" selected>$com_name";
+            } else {
+                $command = escape_html($command);
+                $com_name = escape_html($com_name);
+                $html_command .= "<option value=\"$command\">$com_name";
+            }
+        }
+    }
+
     $tag["<<DOMAIN>>"] =  $domain;
     $tag["<<PASS_RADIO_R>>"] = $pass_radio_r;
     $tag["<<PASS_RADIO_I>>"] = $pass_radio_i;
@@ -109,6 +139,7 @@ function set_tag_data(&$tag) {
     $tag["<<RULE_RADIO_ON>>"] = $rule_radio_on;
     $tag["<<RULE_RADIO_OFF>>"] = $rule_radio_off;
     $tag["<<EXTENSION>>"] = $extension;
+    $tag["<<HTML_COMMAND>>"] = $html_command;
 
     return TRUE;
 
@@ -133,7 +164,10 @@ function add_rcpt_dbdata($add_data)
     global $db_type;
     global $ex_db_file;
     global $ex_db_type;
+    global $com_db_file;
+    global $com_db_type;
     global $samma_conf;
+
 
     /* 登録データ作成 */
     $key = $add_data["domain"];
@@ -161,7 +195,16 @@ function add_rcpt_dbdata($add_data)
     if (isset($samma_conf["extensiondb"]) === TRUE) {
         /* 拡張子DBへ追加 */
         $ret = extension_db_add($ex_db_file, $ex_db_type, $add_data["domain"], $add_data["extension"]);
-        if ($ret !== SUCCESS) {
+        if ($ret !== SUCCESS && $ret !== NO_CHANGE) {
+            return $ret;
+        }
+    }
+
+    if (isset($samma_conf["commanddb"]) === TRUE) {
+        /* コマンドDBへ追加 */
+var_dump($add_data["command"]);
+        $ret = extension_db_add($com_db_file, $com_db_type, $add_data["domain"], $add_data["command"]);
+        if ($ret !== SUCCESS && $ret !== NO_CHANGE) {
             return $ret;
         }
     }
@@ -227,6 +270,20 @@ if (isset($samma_conf["extensiondb"]) === TRUE) {
     $tag["<<EXTENSION_END>>"] = "-->";
 }
 
+/* コマンドDBファイル決定 */
+$com_db_file = "";
+$com_db_type = "";
+if (isset($samma_conf["commanddb"]) === TRUE) {
+    $com_files = explode(":", $samma_conf["commanddb"], 2);
+    $com_db_type = $com_files[0];
+    $com_db_file = $com_files[1];
+    $tag["<<COMMAND_START>>"] = "";
+    $tag["<<COMMAND_END>>"] = "";
+} else {
+    $tag["<<COMMAND_START>>"] = "<!--";
+    $tag["<<COMMAND_END>>"] = "-->";
+}
+
 /* 保持用値取得 */
 $del_list = "";
 if (isset($_POST["delete"]) === TRUE) {
@@ -243,6 +300,22 @@ if (isset($_POST["add"]) === TRUE) {
     $add_data["indivipass"] = $_POST["indivipass"];
     if (isset($samma_conf["extensiondb"]) === TRUE) {
         $add_data["extension"] = $_POST["addextension"];
+    }
+
+    if (isset($samma_conf["commanddb"]) === TRUE) {
+        /* コマンドのチェック */
+        $ret = check_exist_command($web_conf["postldapadmin"]["commandconf"], $_POST["addcommand"]);
+        if ($ret === FAIL) {
+            result_log(OPERATION . ":NG:" . $err_msg);
+            syserr_display();
+            exit (1);
+        } elseif ($ret === FALSE) {
+            result_log(OPERATION . ":NG:" . $err_msg);
+            syserr_display();
+            exit (1);
+        } else {
+            $add_data["command"] = $_POST["addcommand"];
+        }
     }
 
     /* 入力チェック */
