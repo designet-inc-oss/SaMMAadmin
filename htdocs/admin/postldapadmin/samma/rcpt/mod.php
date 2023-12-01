@@ -54,15 +54,17 @@ define("TMPLFILE", "samma/samma_admin_rcpt_mod.tmpl");
  *
  * [引数]
  *      $tag  置き換えタグの配列
+ *      $old_command  変更前コマンド
  *
  * [返り値]
  *       なし
  **********************************************************/
-function set_tag_data(&$tag) {
+function set_tag_data(&$tag, $old_command) {
     global $sesskey;
     global $del_list;
     global $mod_data;
     global $samma_conf;
+    global $web_conf;
 
     /* ドメイン名 */
     $domain = "";
@@ -111,14 +113,61 @@ function set_tag_data(&$tag) {
         }
     }
 
+    $command = "";
+    $com_name = "";
+    if (isset($samma_conf["commanddb"]) === TRUE) {
+        $ret = read_command_conf($web_conf["postldapadmin"]["commandconf"], $command_list);
+        if ($ret === FALSE) {
+            result_log(OPERATION . ":NG:" . $err_msg);
+            syserr_display();
+            exit (1);
+        }
+
+        /* コマンドは設定ファイルの一覧から取得する */
+        $html_command = "<option value=\"$command\">$com_name";
+
+        /* コマンドの一覧にないコマンドが渡ってきた場合no_change */
+        if (isset($mod_data["command"]) === TRUE){
+            $mod_command = $mod_data["command"];
+            if(!isset($command_list[$mod_command])) {
+                $command = "no_change";
+                $com_name = escape_html($mod_command);
+                $html_command .= "<option value=\"$command\" selected>$com_name";
+
+                /* old_commandが空なら初回なので$com_nameを代入 */
+                if ($old_command === "") {
+                    $old_command = $com_name;
+                }
+            } elseif ($old_command !== "") {
+                $command = "no_change";
+                $html_command .= "<option value=\"$command\">$old_command";
+            }
+        }
+
+        foreach($command_list as $command=>$com_name) {
+            /* コマンドが渡ってきた場合 */
+            if (isset($mod_data["command"]) && ($mod_data["command"] === $command)) {
+                $command = escape_html($mod_data["command"]);
+                $com_name = escape_html($com_name);
+                $html_command .= "<option value=\"$command\" selected>$com_name";
+            } else {
+                $command = escape_html($command);
+                $com_name = escape_html($com_name);
+                $html_command .= "<option value=\"$command\">$com_name";
+            }
+        }
+    }
+
     $tag["<<DISP_DOM>>"] = $disp_dom;
     $tag["<<DOMAIN>>"] = $domain;
     $tag["<<PASS_RADIO_R>>"] = $pass_radio_r;
     $tag["<<PASS_RADIO_I>>"] = $pass_radio_i;
     $tag["<<INDIVIPASS>>"] = $indivipass;
     $tag["<<EXTENSION>>"] = $extension;
+    $tag["<<HTML_COMMAND>>"] = $html_command;
     $tag["<<RULE_RADIO_ON>>"] = $rule_radio_on;
     $tag["<<RULE_RADIO_OFF>>"] = $rule_radio_off;
+    $tag["<<OLD_COMMAND>>"] = $old_command;
 
     return TRUE;
 
@@ -143,6 +192,7 @@ function mod_rcpt_dbdata($mod_data,  $old_rule)
 {
     global $db_file;
     global $ex_db_file;
+    global $com_db_file;
     global $samma_conf;
 
     /* 登録データ作成 */
@@ -182,7 +232,7 @@ function mod_rcpt_dbdata($mod_data,  $old_rule)
             }
         } else {
             /* 拡張子DB更新 */
-            $ret = extension_db_mod($ex_db_file, $old_key, $mod_data["extension"]);
+            $ret = extension_db_mod($ex_db_file, $ex_db_type, $old_key, $mod_data["extension"]);
             if ($ret === NO_CHANGE) {
                 /* なにもしない */
             } elseif ($ret === FAIL) {
@@ -191,6 +241,36 @@ function mod_rcpt_dbdata($mod_data,  $old_rule)
             } elseif ($ret !== SUCCESS) {
                 /* 拡張子のエラー */
                 return EXTENSION_ERR;
+            }
+        }
+    }
+
+    /* コマンド変更ありなら */
+    if (isset($samma_conf["commanddb"]) === TRUE && $mod_data["command"] !== "no_change") {
+        /* コマンドが空ならコマンドDBから削除 */
+        if ($mod_data["command"] == "") {
+            $del_dom[] = $mod_data["domain"];
+            $ret = extension_db_del($com_db_file, $del_dom);
+            if ($ret === NO_CHANGE) {
+                /* なにもしない */
+            } elseif ($ret === FAIL) {
+                /* システムエラー */
+                return $ret;
+            } elseif ($ret !== SUCCESS) {
+                /* コマンドのエラー */
+                return COMMAND_ERR;
+            }
+        } else {
+            /* コマンドDB更新 */
+            $ret = extension_db_mod($com_db_file, $com_db_type, $old_key, $mod_data["command"]);
+            if ($ret === NO_CHANGE) {
+                /* なにもしない */
+            } elseif ($ret === FAIL) {
+                /* システムエラー */
+                return $ret;
+            } elseif ($ret !== SUCCESS) {
+                /* コマンドのエラー */
+                return COMMAND_ERR;
             }
         }
     }
@@ -227,6 +307,7 @@ function mod_rcpt_dbdata($mod_data,  $old_rule)
  * [返り値]
  *	TRUE		正常
  *	FALSE		異常
+ *	NOT_FOUND	設定が無い
  **********************************************************/
 function get_db_data($key, $db_file_path, &$value)
 {
@@ -247,10 +328,10 @@ function get_db_data($key, $db_file_path, &$value)
 
     /* データ取得 */
     $value = dba_fetch($key, $dbh);
-    if ($ret === FALSE) {
-        $err_msg = "データベースの検索に失敗しました。(" . $dbpath . ")";
+    if ($value === FALSE) {
+        $err_msg = "データベースの検索に失敗しました。(" . $db_file_path . ")";
         dba_close($dbh);
-        return FALSE;
+        return 'NOT_FOUND';
     }
 
     dba_close($dbh);
@@ -273,11 +354,13 @@ function get_one_dbdata($key, &$data)
 {
     global $db_file;
     global $ex_db_file;
+    global $com_db_file;
     global $samma_conf;
+    global $err_msg;
 
     /* 受信者DBデータ取得 */
     $ret = get_db_data($key, $db_file, $value);
-    if ($ret === FALSE) {
+    if ($ret !== TRUE) {
         return FALSE;
     }
 
@@ -287,6 +370,7 @@ function get_one_dbdata($key, &$data)
     $password = RANDOM;
     $indivipass = "";
     $ex_value = "";
+    $com_value = "";
 
     /* 対象or非対象 */
     $str = explode("!", $key, 2);
@@ -298,9 +382,25 @@ function get_one_dbdata($key, &$data)
     if (isset($samma_conf["extensiondb"]) === TRUE) {
         /* 拡張子DBデータ取得 */
         $ret = get_db_data($domain, $ex_db_file, $ex_value);
-        if ($ret === FALSE) {
-            return FALSE;
-        }
+	if ($ret === TRUE) {
+	    $data["extension"] = $ex_value;
+	} elseif ($ret === 'NOT_FOUND') {
+	    $err_msg = "";
+	} else {
+	    return FALSE;
+	}
+    }
+
+    if (isset($samma_conf["commanddb"]) === TRUE) {
+        /* コマンドDBデータ取得 */
+        $ret = get_db_data($domain, $com_db_file, $com_value);
+	if ($ret === TRUE) {
+	    $data["command"] = $com_value;
+	} elseif ($ret === 'NOT_FOUND') {
+	    $err_msg = "";
+	} else {
+	    return FALSE;
+	}
     }
 
     /* パスワード */
@@ -315,7 +415,6 @@ function get_one_dbdata($key, &$data)
     $data["rule"] = $rule;
     $data["password"] = $password;
     $data["indivipass"] = $indivipass;
-    $data["extension"] = $ex_value;
 
     return TRUE;
 
@@ -374,10 +473,29 @@ if (isset($samma_conf["extensiondb"]) === TRUE) {
     $tag["<<EXTENSION_END>>"] = "-->";
 }
 
+/* コマンドDBファイル決定 */
+$com_db_file = "";
+$com_db_type = "";
+if (isset($samma_conf["commanddb"]) === TRUE) {
+    $com_files = explode(":", $samma_conf["commanddb"], 2);
+    $com_db_type = $com_files[0];
+    $com_db_file = $com_files[1];
+    $tag["<<COMMAND_START>>"] = "";
+    $tag["<<COMMAND_END>>"] = "";
+} else {
+    $tag["<<COMMAND_START>>"] = "<!--";
+    $tag["<<COMMAND_END>>"] = "-->";
+}
+
 /* 保持用値取得 */
 $del_list = "";
 if (isset($_POST["delete"]) === TRUE) {
     $del_list = $_POST["delete"];
+}
+
+$old_command = "";
+if (isset($_POST["old_command"]) === TRUE) {
+    $old_command = $_POST["old_command"];
 }
 
 /* 初期表示 */
@@ -403,6 +521,22 @@ if (isset($_POST["mod"]) === TRUE) {
     $mod_data["indivipass"] = $_POST["indivipass"];
     if (isset($samma_conf["extensiondb"]) === TRUE) {
         $mod_data["extension"] = $_POST["extension"];
+    }
+    if (isset($samma_conf["commanddb"]) === TRUE && $_POST["command"] !== "no_change") {
+
+        /* コマンドのチェック */
+        $ret = check_exist_command($web_conf["postldapadmin"]["commandconf"], $_POST["command"]);
+        if ($ret === FAIL) {
+            result_log(OPERATION . ":NG:" . $err_msg);
+            syserr_display();
+            exit (1);
+        } elseif ($ret === FALSE) {
+            result_log(OPERATION . ":NG:" . $err_msg);
+            syserr_display();
+            exit (1);
+        } else {
+            $mod_data["command"] = $_POST["command"];
+        }
     }
 
     /* 入力チェック */
@@ -457,6 +591,20 @@ if (isset($_POST["mod"]) === TRUE) {
         }
     }
 
+    if (isset($samma_conf["commanddb"]) === TRUE) {
+        /* コマンドDBから削除 */
+        $ret = extension_db_del($com_db_file, $del_dom);
+        if ($ret === FAIL) {
+            result_log(OPERATION . ":NG:" . $err_msg);
+            syserr_display();
+            exit (1);
+        } elseif ($ret === FAIL_DEL) {
+            $err_msg = "コマンドの" . $err_msg;
+            result_log(OPERATION . ":NG:" . $err_msg);
+            $success_flag = 0;
+        }
+    }
+
     if ($success_flag === 1) {
         /* 受信者DBから削除 */
         $ret = db_del($db_file, $del_dom);
@@ -494,7 +642,7 @@ if (isset($_POST["mod"]) === TRUE) {
 /* 共通のタグ設定 */
 set_tag_common($tag);
 
-set_tag_data($tag);
+set_tag_data($tag, $old_command);
 
 /* ページの出力 */
 $ret = display(TMPLFILE, $tag, array(), "", "");
