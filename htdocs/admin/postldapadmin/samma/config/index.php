@@ -332,6 +332,28 @@ function display_result(&$tag) {
     }
     $tag["<<E_FILE>>"] = $e_file;
 
+    /* コマンドDB形式/パス */
+    $html_command = "";
+    foreach ($db_types as $e_type) {
+        $com_file = "";
+        $type = "";
+        if (isset($samma_conf["commanddb"]) === TRUE &&
+            $samma_conf["commanddb"] != "") {
+            $command = explode(":", $samma_conf["commanddb"], 2);
+            $type = $command[0];
+            $com_file = escape_html($command[1]);
+        }
+        $selected = "";
+        /* 一致したら選択 */
+        if ($e_type == $type) {
+            $selected = "selected";
+        }
+        $html_command .= "<option value=\"$e_type\" $selected>$e_type";
+        $tag["<<HTML_COMMAND>>"] = $html_command;
+
+    }
+    $tag["<<COM_FILE>>"] = $com_file;
+
 
     /* 宛先にパスワード通知設定 */
     $passnotice_disabled = "disabled";
@@ -754,6 +776,24 @@ function check_conf_data(&$data)
         }
     }
 
+    /* コマンドDB形式/パス */
+    /* 空チェック */
+    if ($data["com_dbfile"] == "") {
+        $data["commanddb"] = "";
+    } else {
+        /* db名チェック(".db"がついているか) */
+        if (substr($data["com_dbfile"], -3, 3) != ".db") {
+            $data["com_dbfile"] .= ".db";
+            $data["commanddb"] .= ".db";
+        }
+
+        /* 形式チェック(なければ作成) */
+        if (check_db($data["com_dbfile"], $data["com_dbtype"]) === FALSE) {
+            $err_msg = "コマンド" . $err_msg;
+            return FALSE;
+        }
+    }
+
     /* 宛先にパスワードを通知する機能が有効になっている場合 */
     if (is_active_plugin("pluginpassnoticeactive")) {
         /* パスワード通知の設定 */
@@ -1050,6 +1090,13 @@ function set_disp_data($data, &$disp_data)
         $disp_data["ex_dbfile"] = $data["ex_dbfile"];
         $disp_data["ex_dbtype"] = $data["ex_dbtype"];
         $disp_data["extensiondb"] = $data["ex_dbtype"] . ":" . $data["ex_dbfile"];
+    }
+
+    /* commanddb */
+    if (isset($data["com_dbfile"]) === TRUE) {
+        $disp_data["com_dbfile"] = $data["com_dbfile"];
+        $disp_data["com_dbtype"] = $data["com_dbtype"];
+        $disp_data["commanddb"] = $data["com_dbtype"] . ":" . $data["com_dbfile"];
     }
 
     /* templatepath */
