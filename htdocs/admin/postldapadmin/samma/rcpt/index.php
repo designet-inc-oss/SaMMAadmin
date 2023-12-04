@@ -58,8 +58,10 @@ function print_result(&$looptag)
 {
     global $rp_data;
     global $ex_data;
+    global $com_data;
     global $del_list;
     global $samma_conf;
+    global $web_conf;
 
     /* ドメイン数 */
     $domain_count = 0;
@@ -81,6 +83,8 @@ function print_result(&$looptag)
         $passwd = DISP_RANDOM;
         $domain = $key;
         $extension = "";
+        $command = "";
+        $com_name = "";
 
         /* パスワード */
         if ($value != "") {
@@ -104,9 +108,31 @@ function print_result(&$looptag)
             }
         }
 
+        /* 受信者DBにあってコマンドDBにもある場合 */
+        if (isset($samma_conf["commanddb"]) === TRUE) {
+            if (isset($com_data["$domain"]) === TRUE) {
+
+                $ret = read_command_conf($web_conf["postldapadmin"]["commandconf"], $command_list);
+                if ($ret === FALSE) {
+                    result_log(OPERATION . ":NG:" . $err_msg);
+                    syserr_display();
+                    exit (1);
+                }
+                $command = $com_data["$domain"];
+
+                # ここでコマンドの表示を設定する
+                if (isset($command_list["$command"]) === TRUE) {
+                    $com_name = $command_list["$command"];
+                } else {
+                    $com_name = $command;
+                }
+            }
+        }
+
         /* エスケープ */
         $domain = escape_html($domain);
         $extension = escape_html($extension);
+        $com_name = escape_html($com_name);
         $cnv_key = str_replace("'", "\'", $key);
 
         $looptag[$domain_count]["<<KEY>>"] = $key;
@@ -114,6 +140,7 @@ function print_result(&$looptag)
         $looptag[$domain_count]["<<PASSWD>>"] = $passwd;
         $looptag[$domain_count]["<<RULE>>"] = $rule;
         $looptag[$domain_count]["<<EXTENSION>>"] = $extension;
+        $looptag[$domain_count]["<<COM_NAME>>"] = $com_name;
         $looptag[$domain_count]["<<CNV_KEY>>"] = $cnv_key;
 
         $domain_count++;
@@ -171,7 +198,7 @@ if (isset($samma_conf["rcptdb"]) === TRUE) {
     syserr_display();
     exit (1);
 }
-    
+  
 /* 拡張子DBファイル決定 */
 $ex_db_file = "";
 if (isset($samma_conf["extensiondb"]) === TRUE) {
@@ -182,6 +209,18 @@ if (isset($samma_conf["extensiondb"]) === TRUE) {
 } else {
     $tag["<<EXTENSION_START>>"] = "<!--";
     $tag["<<EXTENSION_END>>"] = "-->";
+}
+
+/* コマンドDBファイル決定 */
+$com_db_file = "";
+if (isset($samma_conf["commanddb"]) === TRUE) {
+    $com_files = explode(":", $samma_conf["commanddb"], 2);
+    $com_db_file = $com_files[1];
+    $tag["<<COMMAND_START>>"] = "";
+    $tag["<<COMMAND_END>>"] = "";
+} else {
+    $tag["<<COMMAND_START>>"] = "<!--";
+    $tag["<<COMMAND_END>>"] = "-->";
 }
 
 /* 保持用値取得 */
@@ -254,6 +293,42 @@ if (isset($_POST["new_add"]) === TRUE) {
                 result_log(OPERATION . ":OK:" . $err_msg);
                 $err_msg = $db_err_msg . "<br>" . $err_msg;
             }
+            $ext_err_msg = $err_msg;
+
+        }
+        /* コマンドの削除 */
+        if (isset($samma_conf["commanddb"]) === TRUE) {
+            $ret = extension_db_del($com_db_file, $_POST["delete"]);
+            /* 削除失敗(システムエラー) */
+            if ($ret === FAIL) {
+                result_log(OPERATION . ":NG:" . $err_msg);
+                syserr_display();
+                exit (1);
+            /* 削除失敗 */
+            } elseif ($ret === FAIL_DEL) {
+                $err_msg = "コマンド設定の" . $err_msg;
+                result_log(OPERATION . ":NG:" . $err_msg);
+                $err_msg = $db_err_msg . "<br>" . $err_msg;
+                /* 成功があれば出力 */
+                if ($suc_msg != "") {
+                    $suc_msg = "コマンド設定の" . $suc_msg;
+                    result_log(OPERATION . ":OK:" . $suc_msg);
+                    $err_msg .= "<br>" . $suc_msg;
+                }
+            } elseif ($ret === NO_CHANGE) {
+                /* なにも出力しない */
+            /* 成功 */
+            } else {
+                if ($ext_err_msg != "") {
+                    $err_msg = "コマンド設定の" . $suc_msg;
+                    result_log(OPERATION . ":OK:" . $err_msg);
+                    $err_msg = $ext_err_msg . "<br>" . $err_msg;
+                } else {
+                    $err_msg = "コマンド設定の" . $suc_msg;
+                    result_log(OPERATION . ":OK:" . $err_msg);
+                    $err_msg = $db_err_msg . "<br>" . $err_msg;
+                }
+            }
         }
     }
 }
@@ -269,6 +344,16 @@ if ($ret === FAIL) {
 /* 拡張子設定取得 */
 if (isset($samma_conf["extensiondb"]) === TRUE) {
     $ret = db_search($ex_db_file, $ex_data);
+    if ($ret === FAIL) {
+        result_log(OPERATION . ":NG:" . $err_msg);
+        syserr_display();
+        exit (1);
+    }
+}
+
+/* コマンド設定取得 */
+if (isset($samma_conf["commanddb"]) === TRUE) {
+    $ret = db_search($com_db_file, $com_data);
     if ($ret === FAIL) {
         result_log(OPERATION . ":NG:" . $err_msg);
         syserr_display();
