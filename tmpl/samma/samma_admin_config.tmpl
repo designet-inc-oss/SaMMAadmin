@@ -187,6 +187,22 @@ function ldap_disable(flg) {
                 </div>
 
                 <div class="form-group">
+                  <label for="user" class="col-sm-4 control-label">コマンドDB形式/パス</label>
+                  <div class="col-sm-7">
+                    <div class="form-group">
+                      <div class="col-sm-3">
+                        <select name="com_dbtype" class="small_select">
+                          <<HTML_COMMAND>>
+                        </select>
+                      </div>
+                      <div class="col-sm-9">
+                        <input type="text" class="form-control" size="48" maxlength="256" name="com_dbfile" value="<<COM_FILE>>">
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="form-group">
                   <label for="user" class="col-sm-4 control-label">送信元通知メールテンプレートパス</label>
                   <div class="col-sm-7">
                     <input type="text" class="form-control" size="60" name="templatepath" maxlength="256" value="<<TEMPLATEPATH>>">
