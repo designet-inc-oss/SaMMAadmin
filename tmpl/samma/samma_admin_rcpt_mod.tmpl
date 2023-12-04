@@ -115,6 +115,21 @@
                 </div>
                 <<EXTENSION_END>>
 
+                <<COMMAND_START>>
+                <div class="form-group">
+                  <label for="user" class="col-sm-4 control-label">安全化方法</label>
+                  <div class="col-sm-3">
+                    <input type="hidden" name="old_command" value="<<OLD_COMMAND>>">
+                    <select name="command">
+                      <<HTML_COMMAND>>
+                    </select>
+                  </div>
+                </div>
+                <div class="red">安全化方法を指定する場合は拡張子も合わせて設定してください。<br>
+                安全化方法のみを指定した場合、設定ファイルで設定した拡張子と整合性が取れなくなります。
+                </div>
+                <<COMMAND_END>>
+
                 <div class="red">※ドメイン名の先頭に「@」をつけると、<br>
                 　完全一致したものを条件として比較します。<br>
                   ※メールアドレスは完全一致したものを条件として比較します。
